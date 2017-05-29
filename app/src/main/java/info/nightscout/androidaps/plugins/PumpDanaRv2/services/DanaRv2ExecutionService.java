@@ -46,6 +46,7 @@ import info.nightscout.androidaps.plugins.PumpDanaRv2.comm.MsgHistoryEvents_v2;
 import info.nightscout.androidaps.plugins.PumpDanaRv2.comm.MsgSetAPSTempBasalStart_v2;
 import info.nightscout.androidaps.plugins.PumpDanaRv2.comm.MsgStatusAPS_v2;
 import info.nightscout.androidaps.plugins.PumpDanaRv2.comm.MsgCheckValue_v2;
+import info.nightscout.utils.NSUpload;
 import info.nightscout.utils.SP;
 import info.nightscout.utils.ToastUtils;
 
@@ -89,7 +90,7 @@ public class DanaRv2ExecutionService extends Service {
     public DanaRv2ExecutionService() {
         registerBus();
         MainApp.instance().getApplicationContext().registerReceiver(receiver, new IntentFilter(BluetoothDevice.ACTION_ACL_DISCONNECTED));
-        danaRPump = DanaRv2Plugin.getDanaRPump();
+        danaRPump = DanaRPump.getInstance();
 
         PowerManager powerManager = (PowerManager) MainApp.instance().getApplicationContext().getSystemService(Context.POWER_SERVICE);
         mWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DanaRv2ExecutionService");
@@ -306,12 +307,12 @@ public class DanaRv2ExecutionService extends Service {
             danaRPump.lastConnection = now;
             MainApp.bus().post(new EventDanaRNewStatus());
             MainApp.bus().post(new EventInitializationChanged());
-            MainApp.getConfigBuilder().uploadDeviceStatus();
+            NSUpload.uploadDeviceStatus();
             if (danaRPump.dailyTotalUnits > danaRPump.maxDailyTotalUnits * Constants.dailyLimitWarning ) {
                 log.debug("Approaching daily limit: " + danaRPump.dailyTotalUnits + "/" + danaRPump.maxDailyTotalUnits);
                 Notification reportFail = new Notification(Notification.APPROACHING_DAILY_LIMIT, MainApp.sResources.getString(R.string.approachingdailylimit), Notification.URGENT);
                 MainApp.bus().post(new EventNewNotification(reportFail));
-                MainApp.getConfigBuilder().uploadError(MainApp.sResources.getString(R.string.approachingdailylimit) + ": " + danaRPump.dailyTotalUnits + "/" + danaRPump.maxDailyTotalUnits + "U");
+                NSUpload.uploadError(MainApp.sResources.getString(R.string.approachingdailylimit) + ": " + danaRPump.dailyTotalUnits + "/" + danaRPump.maxDailyTotalUnits + "U");
             }
         } catch (Exception e) {
             e.printStackTrace();

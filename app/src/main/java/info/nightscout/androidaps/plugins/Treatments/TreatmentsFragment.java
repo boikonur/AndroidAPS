@@ -1,4 +1,4 @@
-package info.nightscout.androidaps.plugins.TreatmentsFromHistory;
+package info.nightscout.androidaps.plugins.Treatments;
 
 import android.content.Context;
 import android.os.Bundle;
@@ -12,18 +12,19 @@ import android.widget.TextView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import info.nightscout.androidaps.MainApp;
 import info.nightscout.androidaps.R;
-import info.nightscout.androidaps.plugins.TreatmentsFromHistory.fragments.TreatmentsBolusFragment;
-import info.nightscout.androidaps.plugins.TreatmentsFromHistory.fragments.TreatmentsExtendedBolusesFragment;
-import info.nightscout.androidaps.plugins.TreatmentsFromHistory.fragments.TreatmentsTempTargetFragment;
-import info.nightscout.androidaps.plugins.TreatmentsFromHistory.fragments.TreatmentsTemporaryBasalsFragment;
+import info.nightscout.androidaps.plugins.Treatments.fragments.TreatmentsBolusFragment;
+import info.nightscout.androidaps.plugins.Treatments.fragments.TreatmentsExtendedBolusesFragment;
+import info.nightscout.androidaps.plugins.Treatments.fragments.TreatmentsTempTargetFragment;
+import info.nightscout.androidaps.plugins.Treatments.fragments.TreatmentsTemporaryBasalsFragment;
 
-public class TreatmentsFromHistoryFragment extends Fragment implements View.OnClickListener {
-    private static Logger log = LoggerFactory.getLogger(TreatmentsFromHistoryFragment.class);
+public class TreatmentsFragment extends Fragment implements View.OnClickListener {
+    private static Logger log = LoggerFactory.getLogger(TreatmentsFragment.class);
 
-    private static TreatmentsFromHistoryPlugin treatmentsPlugin = new TreatmentsFromHistoryPlugin();
+    private static TreatmentsPlugin treatmentsPlugin = new TreatmentsPlugin();
 
-    public static TreatmentsFromHistoryPlugin getPlugin() {
+    public static TreatmentsPlugin getPlugin() {
         return treatmentsPlugin;
     }
 
@@ -49,6 +50,7 @@ public class TreatmentsFromHistoryFragment extends Fragment implements View.OnCl
         context = getContext();
 
         setFragment(new TreatmentsBolusFragment());
+        setBackgroundColorOnSelected(treatmentsTab);
 
         return view;
     }
@@ -59,15 +61,19 @@ public class TreatmentsFromHistoryFragment extends Fragment implements View.OnCl
         switch (v.getId()) {
             case R.id.treatments_treatments:
                 setFragment(new TreatmentsBolusFragment());
+                setBackgroundColorOnSelected(treatmentsTab);
                 break;
             case R.id.treatments_extendedboluses:
                 setFragment(new TreatmentsExtendedBolusesFragment());
+                setBackgroundColorOnSelected(extendedBolusesTab);
                 break;
             case R.id.treatments_tempbasals:
                 setFragment(new TreatmentsTemporaryBasalsFragment());
+                setBackgroundColorOnSelected(tempBasalsTab);
                 break;
             case R.id.treatments_temptargets:
                 setFragment(new TreatmentsTempTargetFragment());
+                setBackgroundColorOnSelected(tempTargetTab);
                 break;
         }
     }
@@ -78,5 +84,13 @@ public class TreatmentsFromHistoryFragment extends Fragment implements View.OnCl
         ft.setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN);
         ft.addToBackStack(null);
         ft.commit();
+    }
+
+    private void setBackgroundColorOnSelected(TextView selected) {
+        treatmentsTab.setBackgroundColor(MainApp.sResources.getColor(R.color.defaultbackground));
+        extendedBolusesTab.setBackgroundColor(MainApp.sResources.getColor(R.color.defaultbackground));
+        tempBasalsTab.setBackgroundColor(MainApp.sResources.getColor(R.color.defaultbackground));
+        tempTargetTab.setBackgroundColor(MainApp.sResources.getColor(R.color.defaultbackground));
+        selected.setBackgroundColor(MainApp.sResources.getColor(R.color.tabBgColorSelected));
     }
 }

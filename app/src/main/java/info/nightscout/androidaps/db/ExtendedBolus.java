@@ -45,7 +45,7 @@ public class ExtendedBolus implements Interval {
     @DatabaseField
     public double insulin = 0d;
     @DatabaseField
-    public int durationInMinutes = 0; // duration == 0 means end of temp basal
+    public int durationInMinutes = 0; // duration == 0 means end of extended bolus
 
     @DatabaseField
     public int insulinInterfaceID = InsulinInterface.FASTACTINGINSULIN;
@@ -159,6 +159,7 @@ public class ExtendedBolus implements Interval {
                     Iob aIOB = insulinInterface.iobCalcForTreatment(tempBolusPart, time, profile.getDia());
                     result.iob += aIOB.iobContrib;
                     result.activity += aIOB.activityContrib;
+                    result.extendedBolusInsulin += tempBolusPart.insulin;
                 }
             }
         }

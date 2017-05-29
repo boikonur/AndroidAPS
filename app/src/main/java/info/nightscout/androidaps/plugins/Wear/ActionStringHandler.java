@@ -12,6 +12,7 @@ import info.nightscout.androidaps.Config;
 import info.nightscout.androidaps.Constants;
 import info.nightscout.androidaps.MainApp;
 import info.nightscout.androidaps.R;
+import info.nightscout.androidaps.data.DetailedBolusInfo;
 import info.nightscout.androidaps.data.PumpEnactResult;
 import info.nightscout.androidaps.db.BgReading;
 import info.nightscout.androidaps.db.DatabaseHelper;
@@ -275,7 +276,7 @@ public class ActionStringHandler {
         }
 
         //Check for Temp-Target:
-        TempTarget tempTarget = MainApp.getConfigBuilder().getTempTarget(new Date().getTime());
+        TempTarget tempTarget = MainApp.getConfigBuilder().getTempTargetFromHistory(new Date().getTime());
         if (tempTarget != null) {
             ret += "Temp Target: " + NSProfile.toUnitsString(tempTarget.low, NSProfile.fromMgdlToUnits(tempTarget.low, profile.getUnits()), profile.getUnits()) + " - " + NSProfile.toUnitsString(tempTarget.high, NSProfile.fromMgdlToUnits(tempTarget.high, profile.getUnits()), profile.getUnits());
             ret += "\nuntil: " + DateUtil.timeString(tempTarget.originalEnd());
@@ -368,7 +369,10 @@ public class ActionStringHandler {
         handler.post(new Runnable() {
             @Override
             public void run() {
-                PumpEnactResult result = MainApp.getConfigBuilder().deliverTreatment(MainApp.getConfigBuilder().getActiveInsulin(), amount, 0, null, false);
+                DetailedBolusInfo detailedBolusInfo = new DetailedBolusInfo();
+                detailedBolusInfo.insulin = amount;
+                detailedBolusInfo.addToTreatments = false;
+                PumpEnactResult result = MainApp.getConfigBuilder().deliverTreatment(detailedBolusInfo);
                 if (!result.success) {
                     sendError(MainApp.sResources.getString(R.string.treatmentdeliveryerror) +
                             "\n" +
@@ -384,7 +388,10 @@ public class ActionStringHandler {
         handler.post(new Runnable() {
             @Override
             public void run() {
-                PumpEnactResult result = MainApp.getConfigBuilder().deliverTreatment(MainApp.getConfigBuilder().getActiveInsulin(), amount, carbs, null, true);
+                DetailedBolusInfo detailedBolusInfo = new DetailedBolusInfo();
+                detailedBolusInfo.insulin = amount;
+                detailedBolusInfo.carbs = carbs;
+                PumpEnactResult result = MainApp.getConfigBuilder().deliverTreatment(detailedBolusInfo);
                 if (!result.success) {
                     sendError(MainApp.sResources.getString(R.string.treatmentdeliveryerror) +
                             "\n" +

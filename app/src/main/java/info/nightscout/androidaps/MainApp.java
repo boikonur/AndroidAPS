@@ -54,10 +54,11 @@ import info.nightscout.androidaps.plugins.SourceGlimp.SourceGlimpFragment;
 import info.nightscout.androidaps.plugins.SourceMM640g.SourceMM640gFragment;
 import info.nightscout.androidaps.plugins.SourceNSClient.SourceNSClientFragment;
 import info.nightscout.androidaps.plugins.SourceXdrip.SourceXdripFragment;
-import info.nightscout.androidaps.plugins.TreatmentsFromHistory.TreatmentsFromHistoryFragment;
+import info.nightscout.androidaps.plugins.Treatments.TreatmentsFragment;
 import info.nightscout.androidaps.plugins.Wear.WearFragment;
 import info.nightscout.androidaps.plugins.XDripStatusline.StatuslineFragment;
 import info.nightscout.androidaps.receivers.KeepAliveReceiver;
+import info.nightscout.utils.NSUpload;
 import io.fabric.sdk.android.Fabric;
 
 
@@ -112,7 +113,7 @@ public class MainApp extends Application {
             if (Config.OTHERPROFILES) pluginsList.add(LocalProfileFragment.getPlugin());
             if (Config.OTHERPROFILES)
                 pluginsList.add(CircadianPercentageProfileFragment.getPlugin());
-            pluginsList.add(TreatmentsFromHistoryFragment.getPlugin());
+            pluginsList.add(TreatmentsFragment.getPlugin());
             if (Config.SAFETY) pluginsList.add(SafetyFragment.getPlugin());
             if (Config.APS) pluginsList.add(ObjectivesFragment.getPlugin());
             pluginsList.add(SourceXdripFragment.getPlugin());
@@ -130,7 +131,7 @@ public class MainApp extends Application {
 
             MainApp.getConfigBuilder().initialize();
         }
-        MainApp.getConfigBuilder().uploadAppStart();
+        NSUpload.uploadAppStart();
 
         startKeepAliveService();
 

@@ -2,6 +2,7 @@ package info.nightscout.androidaps.plugins.Overview;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.graphics.Color;
 import android.graphics.DashPathEffect;
@@ -62,10 +63,12 @@ import info.nightscout.androidaps.Config;
 import info.nightscout.androidaps.Constants;
 import info.nightscout.androidaps.MainApp;
 import info.nightscout.androidaps.R;
+import info.nightscout.androidaps.data.DetailedBolusInfo;
 import info.nightscout.androidaps.data.GlucoseStatus;
 import info.nightscout.androidaps.data.IobTotal;
 import info.nightscout.androidaps.data.PumpEnactResult;
 import info.nightscout.androidaps.db.BgReading;
+import info.nightscout.androidaps.db.CareportalEvent;
 import info.nightscout.androidaps.db.DatabaseHelper;
 import info.nightscout.androidaps.db.TempTarget;
 import info.nightscout.androidaps.db.TemporaryBasal;
@@ -108,6 +111,7 @@ import info.nightscout.androidaps.plugins.SourceXdrip.SourceXdripPlugin;
 import info.nightscout.utils.BolusWizard;
 import info.nightscout.utils.DateUtil;
 import info.nightscout.utils.DecimalFormatter;
+import info.nightscout.utils.NSUpload;
 import info.nightscout.utils.Round;
 import info.nightscout.utils.SP;
 import info.nightscout.utils.ToastUtils;
@@ -232,8 +236,6 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
         treatmentButton.setOnClickListener(this);
         wizardButton = (Button) view.findViewById(R.id.overview_wizardbutton);
         wizardButton.setOnClickListener(this);
-        cancelTempButton = (Button) view.findViewById(R.id.overview_canceltempbutton);
-        cancelTempButton.setOnClickListener(this);
         acceptTempButton = (Button) view.findViewById(R.id.overview_accepttempbutton);
         acceptTempButton.setOnClickListener(this);
         quickWizardButton = (Button) view.findViewById(R.id.overview_quickwizardbutton);
@@ -365,14 +367,14 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
                     }
                 }
             });
-            ConfigBuilderPlugin.uploadOpenAPSOffline(60); // upload 60 min, we don;t know real duration
+            NSUpload.uploadOpenAPSOffline(60); // upload 60 min, we don;t know real duration
             return true;
         } else if (item.getTitle().equals(MainApp.sResources.getString(R.string.enableloop))) {
             activeloop.setFragmentEnabled(PluginBase.LOOP, true);
             activeloop.setFragmentVisible(PluginBase.LOOP, true);
             MainApp.getConfigBuilder().storeSettings();
             scheduleUpdateGUI("suspendmenu");
-            ConfigBuilderPlugin.uploadOpenAPSOffline(0);
+            NSUpload.uploadOpenAPSOffline(0);
             return true;
         } else if (item.getTitle().equals(MainApp.sResources.getString(R.string.resume))) {
             activeloop.suspendTo(0L);
@@ -386,7 +388,7 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
                     }
                 }
             });
-            ConfigBuilderPlugin.uploadOpenAPSOffline(0);
+            NSUpload.uploadOpenAPSOffline(0);
             return true;
         } else if (item.getTitle().equals(MainApp.sResources.getString(R.string.suspendloopfor1h))) {
             activeloop.suspendTo(new Date().getTime() + 60L * 60 * 1000);
@@ -400,7 +402,7 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
                     }
                 }
             });
-            ConfigBuilderPlugin.uploadOpenAPSOffline(60);
+            NSUpload.uploadOpenAPSOffline(60);
             return true;
         } else if (item.getTitle().equals(MainApp.sResources.getString(R.string.suspendloopfor2h))) {
             activeloop.suspendTo(new Date().getTime() + 2 * 60L * 60 * 1000);
@@ -414,7 +416,7 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
                     }
                 }
             });
-            ConfigBuilderPlugin.uploadOpenAPSOffline(120);
+            NSUpload.uploadOpenAPSOffline(120);
             return true;
         } else if (item.getTitle().equals(MainApp.sResources.getString(R.string.suspendloopfor3h))) {
             activeloop.suspendTo(new Date().getTime() + 3 * 60L * 60 * 1000);
@@ -428,7 +430,7 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
                     }
                 }
             });
-            ConfigBuilderPlugin.uploadOpenAPSOffline(180);
+            NSUpload.uploadOpenAPSOffline(180);
             return true;
         } else if (item.getTitle().equals(MainApp.sResources.getString(R.string.suspendloopfor10h))) {
             activeloop.suspendTo(new Date().getTime() + 10 * 60L * 60 * 1000);
@@ -442,7 +444,7 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
                     }
                 }
             });
-            ConfigBuilderPlugin.uploadOpenAPSOffline(600);
+            NSUpload.uploadOpenAPSOffline(600);
             return true;
         } else if (item.getTitle().equals(MainApp.sResources.getString(R.string.disconnectpumpfor30m))) {
             activeloop.suspendTo(new Date().getTime() + 30L * 60 * 1000);
@@ -456,7 +458,7 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
                     }
                 }
             });
-            ConfigBuilderPlugin.uploadOpenAPSOffline(30);
+            NSUpload.uploadOpenAPSOffline(30);
             return true;
         } else if (item.getTitle().equals(MainApp.sResources.getString(R.string.disconnectpumpfor1h))) {
             activeloop.suspendTo(new Date().getTime() + 1 * 60L * 60 * 1000);
@@ -470,7 +472,7 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
                     }
                 }
             });
-            ConfigBuilderPlugin.uploadOpenAPSOffline(60);
+            NSUpload.uploadOpenAPSOffline(60);
             return true;
         } else if (item.getTitle().equals(MainApp.sResources.getString(R.string.disconnectpumpfor2h))) {
             activeloop.suspendTo(new Date().getTime() + 2 * 60L * 60 * 1000);
@@ -484,7 +486,7 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
                     }
                 }
             });
-            ConfigBuilderPlugin.uploadOpenAPSOffline(120);
+            NSUpload.uploadOpenAPSOffline(120);
             return true;
         } else if (item.getTitle().equals(MainApp.sResources.getString(R.string.disconnectpumpfor3h))) {
             activeloop.suspendTo(new Date().getTime() + 3 * 60L * 60 * 1000);
@@ -498,7 +500,7 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
                     }
                 }
             });
-            ConfigBuilderPlugin.uploadOpenAPSOffline(180);
+            NSUpload.uploadOpenAPSOffline(180);
             return true;
         }
 
@@ -571,7 +573,7 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
                                     finalLastRun.setByPump = applyResult;
                                     finalLastRun.lastEnact = new Date();
                                     finalLastRun.lastOpenModeAccept = new Date();
-                                    MainApp.getConfigBuilder().uploadDeviceStatus();
+                                    NSUpload.uploadDeviceStatus();
                                     ObjectivesPlugin objectivesPlugin = (ObjectivesPlugin) MainApp.getSpecificPlugin(ObjectivesPlugin.class);
                                     if (objectivesPlugin != null) {
                                         objectivesPlugin.manualEnacts++;
@@ -646,8 +648,8 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
 
                 final Double finalInsulinAfterConstraints = insulinAfterConstraints;
                 final Integer finalCarbsAfterConstraints = carbsAfterConstraints;
-
-                AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
+                final Context context = getContext();
+                AlertDialog.Builder builder = new AlertDialog.Builder(context);
                 builder.setTitle(MainApp.sResources.getString(R.string.confirmation));
                 builder.setMessage(confirmMessage);
                 builder.setPositiveButton(getString(R.string.ok), new DialogInterface.OnClickListener() {
@@ -657,16 +659,13 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
                             sHandler.post(new Runnable() {
                                 @Override
                                 public void run() {
-                                    PumpEnactResult result = pump.deliverTreatmentFromBolusWizard(
-                                            MainApp.getConfigBuilder().getActiveInsulin(),
-                                            getContext(),
-                                            finalInsulinAfterConstraints,
-                                            finalCarbsAfterConstraints,
-                                            actualBg.valueToUnits(profile.getUnits()),
-                                            "Manual",
-                                            0,
-                                            boluscalcJSON
-                                    );
+                                    DetailedBolusInfo detailedBolusInfo = new DetailedBolusInfo();
+                                    detailedBolusInfo.eventType = CareportalEvent.BOLUSWIZARD;
+                                    detailedBolusInfo.insulin = finalInsulinAfterConstraints;
+                                    detailedBolusInfo.carbs = finalCarbsAfterConstraints;
+                                    detailedBolusInfo.context = context;
+                                    detailedBolusInfo.boluscalc = boluscalcJSON;
+                                    PumpEnactResult result = pump.deliverTreatment(detailedBolusInfo);
                                     if (!result.success) {
                                         AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
                                         builder.setTitle(MainApp.sResources.getString(R.string.treatmentdeliveryerror));
@@ -897,7 +896,7 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
 
         // temp target
         NSProfile profile = MainApp.getConfigBuilder().getActiveProfile().getProfile();
-        TempTarget tempTarget = MainApp.getConfigBuilder().getTempTarget(new Date().getTime());
+        TempTarget tempTarget = MainApp.getConfigBuilder().getTempTargetFromHistory(new Date().getTime());
         if (tempTarget != null) {
             tempTargetView.setTextColor(Color.BLACK);
             tempTargetView.setBackgroundColor(MainApp.sResources.getColor(R.color.tempTargetBackground));
@@ -937,7 +936,7 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
             calibrationButton.setVisibility(View.GONE);
         }
 
-        TemporaryBasal activeTemp = MainApp.getConfigBuilder().getTempBasal(new Date().getTime());
+        TemporaryBasal activeTemp = MainApp.getConfigBuilder().getTempBasalFromHistory(new Date().getTime());
         if (MainApp.getConfigBuilder().isTempBasalInProgress()) {
             cancelTempButton.setVisibility(View.VISIBLE);
             cancelTempButton.setText(MainApp.instance().getString(R.string.cancel) + "\n" + activeTemp.toStringShort());
@@ -1122,8 +1121,8 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
             double lastLineBasal = 0;
             double lastBaseBasal = 0;
             double lastTempBasal = 0;
-            for (long time = fromTime; time < now; time += 5 * 60 * 1000L) {
-                TemporaryBasal tb = MainApp.getConfigBuilder().getTempBasal(time);
+            for (long time = fromTime; time < now; time += 1 * 60 * 1000L) {
+                TemporaryBasal tb = MainApp.getConfigBuilder().getTempBasalFromHistory(time);
                 double baseBasalValue = profile.getBasal(NSProfile.secondsFromMidnight(new Date(time)));
                 double baseLineValue = baseBasalValue;
                 double tempBasalValue = 0;
@@ -1412,7 +1411,7 @@ public class OverviewFragment extends Fragment implements View.OnClickListener, 
 
 
         // Treatments
-        List<Treatment> treatments = MainApp.getConfigBuilder().getTreatments();
+        List<Treatment> treatments = MainApp.getConfigBuilder().getTreatmentsFromHistory();
         List<Treatment> filteredTreatments = new ArrayList<Treatment>();
 
         for (int tx = 0; tx < treatments.size(); tx++) {

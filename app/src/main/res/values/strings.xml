@@ -211,6 +211,7 @@
     <string name="es_lang">Spanish</string>
     <string name="el_lang">Greek</string>
     <string name="it_lang">Italian</string>
+    <string name="ru_lang">Russian</string>
     <string name="openapsma_low_summary">The minimum BG value to be in range.</string>
     <string name="openapsma_high_summary">The maximum BG value to be in range.</string>
     <string name="openapsma_maxbasal_title">Max U/hr a Temp Basal can be set to</string>
@@ -611,9 +612,13 @@
     <string name="key_ns_noupload" translatable="false">ns_noupload</string>
     <string name="basal_step">Basal Step</string>
     <string name="bolus_step">Bolus Step</string>
-    <string name="stopevent">STOP</string>
     <string name="extendedbolus">ExtendedBolus</string>
     <string name="temptarget">TempTarget</string>
     <string name="combopump">Accu-Chek Combo</string>
     <string name="combopump_settings">Accu-Chek Combo settings</string>
+    <string name="overview_extendedbolus_cancel_button">Cancel Extended Bolus</string>
+    <string name="careportal_sensorage_label">Sensor age</string>
+    <string name="careportal_canulaage_label">Canula age</string>
+    <string name="careportal_insulinage_label">Insulin age</string>
+    <string name="hours">hours</string>
 </resources>

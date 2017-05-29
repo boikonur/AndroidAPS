@@ -1,4 +1,4 @@
-package info.nightscout.androidaps.plugins.TreatmentsFromHistory.fragments;
+package info.nightscout.androidaps.plugins.Treatments.fragments;
 
 import android.app.Activity;
 import android.content.Context;
@@ -33,6 +33,7 @@ import info.nightscout.androidaps.events.EventNewBG;
 import info.nightscout.androidaps.events.EventTempBasalChange;
 import info.nightscout.utils.DateUtil;
 import info.nightscout.utils.DecimalFormatter;
+import info.nightscout.utils.NSUpload;
 import info.nightscout.utils.OverlappingIntervals;
 
 
@@ -65,7 +66,7 @@ public class TreatmentsTemporaryBasalsFragment extends Fragment {
             TemporaryBasal tempBasal = tempBasalList.getReversed(position);
             if (tempBasal.isEndingEvent()) {
                 holder.date.setText(DateUtil.dateAndTimeString(tempBasal.date));
-                holder.duration.setText(MainApp.sResources.getString(R.string.stopevent));
+                holder.duration.setText(MainApp.sResources.getString(R.string.cancel));
                 holder.absolute.setText("");
                 holder.percent.setText("");
                 holder.realDuration.setText("");
@@ -158,7 +159,7 @@ public class TreatmentsTemporaryBasalsFragment extends Fragment {
                             public void onClick(DialogInterface dialog, int id) {
                                 final String _id = tempBasal._id;
                                 if (_id != null && !_id.equals("")) {
-                                    MainApp.getConfigBuilder().removeCareportalEntryFromNS(_id);
+                                    NSUpload.removeCareportalEntryFromNS(_id);
                                 }
                                 MainApp.getDbHelper().delete(tempBasal);
                                 Answers.getInstance().logCustom(new CustomEvent("RemoveTempBasal"));
@@ -182,7 +183,7 @@ public class TreatmentsTemporaryBasalsFragment extends Fragment {
         llm = new LinearLayoutManager(view.getContext());
         recyclerView.setLayoutManager(llm);
 
-        RecyclerViewAdapter adapter = new RecyclerViewAdapter(MainApp.getConfigBuilder().getTemporaryBasals());
+        RecyclerViewAdapter adapter = new RecyclerViewAdapter(MainApp.getConfigBuilder().getTemporaryBasalsFromHistory());
         recyclerView.setAdapter(adapter);
 
         tempBasalTotalView = (TextView) view.findViewById(R.id.tempbasals_totaltempiob);
@@ -221,7 +222,7 @@ public class TreatmentsTemporaryBasalsFragment extends Fragment {
             activity.runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    recyclerView.swapAdapter(new RecyclerViewAdapter(MainApp.getConfigBuilder().getTemporaryBasals()), false);
+                    recyclerView.swapAdapter(new RecyclerViewAdapter(MainApp.getConfigBuilder().getTemporaryBasalsFromHistory()), false);
                     if (MainApp.getConfigBuilder().getLastCalculationTempBasals() != null) {
                         String totalText = DecimalFormatter.to2Decimal(MainApp.getConfigBuilder().getLastCalculationTempBasals().basaliob) + " U";
                         tempBasalTotalView.setText(totalText);

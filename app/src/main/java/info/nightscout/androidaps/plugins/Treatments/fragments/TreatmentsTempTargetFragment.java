@@ -1,4 +1,4 @@
-package info.nightscout.androidaps.plugins.TreatmentsFromHistory.fragments;
+package info.nightscout.androidaps.plugins.Treatments.fragments;
 
 import android.app.Activity;
 import android.content.Context;
@@ -16,7 +16,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.squareup.otto.Subscribe;
@@ -30,6 +29,7 @@ import info.nightscout.androidaps.plugins.ConfigBuilder.ConfigBuilderPlugin;
 import info.nightscout.androidaps.plugins.NSClientInternal.data.NSProfile;
 import info.nightscout.utils.DateUtil;
 import info.nightscout.utils.DecimalFormatter;
+import info.nightscout.utils.NSUpload;
 import info.nightscout.utils.OverlappingIntervals;
 import info.nightscout.utils.SP;
 
@@ -64,8 +64,8 @@ public class TreatmentsTempTargetFragment extends Fragment implements View.OnCli
         public void onBindViewHolder(TempTargetsViewHolder holder, int position) {
             NSProfile profile = ConfigBuilderPlugin.getActiveProfile().getProfile();
             if (profile == null) return;
-            TempTarget tempTarget = tempTargetList.get(position);
-            if (tempTarget.durationInMinutes != 0) {
+            TempTarget tempTarget = tempTargetList.getReversed(position);
+            if (!tempTarget.isEndingEvent()) {
                 holder.date.setText(DateUtil.dateAndTimeString(tempTarget.date) + " - " + DateUtil.timeString(tempTargetList.get(position).originalEnd()));
                 holder.duration.setText(DecimalFormatter.to0Decimal(tempTarget.durationInMinutes) + " min");
                 holder.low.setText(tempTarget.lowValueToUnitsToString(profile.getUnits()));
@@ -81,9 +81,9 @@ public class TreatmentsTempTargetFragment extends Fragment implements View.OnCli
                 holder.reasonColon.setText("");
             }
             if (tempTarget.isInProgress())
-                holder.dateLinearLayout.setBackgroundColor(ContextCompat.getColor(MainApp.instance(), R.color.colorInProgress));
+                holder.date.setTextColor(ContextCompat.getColor(MainApp.instance(), R.color.colorActive));
             else
-                holder.dateLinearLayout.setBackgroundColor(ContextCompat.getColor(MainApp.instance(), R.color.cardColorBackground));
+                holder.date.setTextColor(holder.reasonColon.getCurrentTextColor());
             holder.remove.setTag(tempTarget);
         }
 
@@ -107,7 +107,6 @@ public class TreatmentsTempTargetFragment extends Fragment implements View.OnCli
             TextView reasonLabel;
             TextView reasonColon;
             TextView remove;
-            LinearLayout dateLinearLayout;
 
             TempTargetsViewHolder(View itemView) {
                 super(itemView);
@@ -122,7 +121,6 @@ public class TreatmentsTempTargetFragment extends Fragment implements View.OnCli
                 remove = (TextView) itemView.findViewById(R.id.temptargetrange_remove);
                 remove.setOnClickListener(this);
                 remove.setPaintFlags(remove.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
-                dateLinearLayout = (LinearLayout) itemView.findViewById(R.id.temptargetrange_datelinearlayout);
             }
 
             @Override
@@ -138,7 +136,7 @@ public class TreatmentsTempTargetFragment extends Fragment implements View.OnCli
                             public void onClick(DialogInterface dialog, int id) {
                                 final String _id = tempTarget._id;
                                 if (_id != null && !_id.equals("")) {
-                                    MainApp.getConfigBuilder().removeCareportalEntryFromNS(_id);
+                                    NSUpload.removeCareportalEntryFromNS(_id);
                                 }
                                 MainApp.getDbHelper().delete(tempTarget);
                             }
@@ -161,7 +159,7 @@ public class TreatmentsTempTargetFragment extends Fragment implements View.OnCli
         llm = new LinearLayoutManager(view.getContext());
         recyclerView.setLayoutManager(llm);
 
-        RecyclerViewAdapter adapter = new RecyclerViewAdapter(MainApp.getConfigBuilder().getTempTargets());
+        RecyclerViewAdapter adapter = new RecyclerViewAdapter(MainApp.getConfigBuilder().getTempTargetsFromHistory());
         recyclerView.setAdapter(adapter);
 
         refreshFromNS = (Button) view.findViewById(R.id.temptargetrange_refreshfromnightscout);
@@ -221,7 +219,7 @@ public class TreatmentsTempTargetFragment extends Fragment implements View.OnCli
             activity.runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    recyclerView.swapAdapter(new RecyclerViewAdapter(MainApp.getConfigBuilder().getTempTargets()), false);
+                    recyclerView.swapAdapter(new RecyclerViewAdapter(MainApp.getConfigBuilder().getTempTargetsFromHistory()), false);
                 }
             });
     }

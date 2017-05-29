@@ -44,6 +44,7 @@ import info.nightscout.androidaps.Constants;
 import info.nightscout.androidaps.MainApp;
 import info.nightscout.androidaps.R;
 import info.nightscout.androidaps.data.GlucoseStatus;
+import info.nightscout.androidaps.db.CareportalEvent;
 import info.nightscout.androidaps.db.TempTarget;
 import info.nightscout.androidaps.events.EventNewBasalProfile;
 import info.nightscout.androidaps.interfaces.PumpInterface;
@@ -52,6 +53,7 @@ import info.nightscout.androidaps.plugins.ConfigBuilder.ConfigBuilderPlugin;
 import info.nightscout.androidaps.plugins.NSClientInternal.data.NSProfile;
 import info.nightscout.androidaps.plugins.ProfileCircadianPercentage.CircadianPercentageProfilePlugin;
 import info.nightscout.utils.DateUtil;
+import info.nightscout.utils.NSUpload;
 import info.nightscout.utils.PlusMinusEditText;
 import info.nightscout.utils.SP;
 import info.nightscout.utils.SafeParse;
@@ -407,7 +409,7 @@ public class NewNSTreatmentDialog extends DialogFragment implements View.OnClick
                     data.put("isAnnouncement", true);
                     break;
                 case R.id.careportal_cgmsensorinsert:
-                    data.put("eventType", "Sensor Change");
+                    data.put("eventType", CareportalEvent.SENSORCHANGE);
                     break;
                 case R.id.careportal_cgmsensorstart:
                     data.put("eventType", "Sensor Start");
@@ -415,7 +417,7 @@ public class NewNSTreatmentDialog extends DialogFragment implements View.OnClick
                 case R.id.careportal_combobolus:
                     data.put("splitNow", SafeParse.stringToDouble(splitEdit.getText().toString()));
                     data.put("splitExt", 100 - SafeParse.stringToDouble(splitEdit.getText().toString()));
-                    data.put("eventType", "Combo Bolus");
+                    data.put("eventType", CareportalEvent.COMBOBOLUS);
                     break;
                 case R.id.careportal_correctionbolus:
                     data.put("eventType", "Correction Bolus");
@@ -427,7 +429,7 @@ public class NewNSTreatmentDialog extends DialogFragment implements View.OnClick
                     data.put("eventType", "Exercise");
                     break;
                 case R.id.careportal_insulincartridgechange:
-                    data.put("eventType", "Insulin Change");
+                    data.put("eventType", CareportalEvent.INSULINCHANGE);
                     break;
                 case R.id.careportal_mealbolus:
                     data.put("eventType", "Meal Bolus");
@@ -436,10 +438,10 @@ public class NewNSTreatmentDialog extends DialogFragment implements View.OnClick
                     data.put("eventType", "Note");
                     break;
                 case R.id.careportal_profileswitch:
-                    data.put("eventType", "Profile Switch");
+                    data.put("eventType", CareportalEvent.PROFILESWITCH);
                     break;
                 case R.id.careportal_pumpsitechange:
-                    data.put("eventType", "Site Change");
+                    data.put("eventType", CareportalEvent.SITECHANGE);
                     break;
                 case R.id.careportal_question:
                     data.put("eventType", "Question");
@@ -448,10 +450,10 @@ public class NewNSTreatmentDialog extends DialogFragment implements View.OnClick
                     data.put("eventType", "Snack Bolus");
                     break;
                 case R.id.careportal_tempbasalstart:
-                    data.put("eventType", "Temp Basal");
+                    data.put("eventType", CareportalEvent.TEMPBASAL);
                     break;
                 case R.id.careportal_tempbasalend:
-                    data.put("eventType", "Temp Basal");
+                    data.put("eventType", CareportalEvent.TEMPBASAL);
                     break;
                 case R.id.careportal_openapsoffline:
                     data.put("eventType", "OpenAPS Offline");
@@ -630,7 +632,7 @@ public class NewNSTreatmentDialog extends DialogFragment implements View.OnClick
                                         data.put("timeshift", cpp.timeshift);
                                         data.put("percentage", cpp.percentage);
                                     }
-                                    ConfigBuilderPlugin.uploadCareportalEntryToNS(data);
+                                    NSUpload.uploadCareportalEntryToNS(data);
                                     Answers.getInstance().logCustom(new CustomEvent("ProfileSwitch"));
                                 } catch (JSONException e) {
                                     e.printStackTrace();
@@ -658,7 +660,7 @@ public class NewNSTreatmentDialog extends DialogFragment implements View.OnClick
                                         }
                                         log.debug("Creating new TempTarget db record: " + tempTarget.log());
                                         MainApp.getDbHelper().createOrUpdate(tempTarget);
-                                        ConfigBuilderPlugin.uploadCareportalEntryToNS(data);
+                                        NSUpload.uploadCareportalEntryToNS(data);
                                         Answers.getInstance().logCustom(new CustomEvent("TempTarget"));
                                     } catch (JSONException e) {
                                         e.printStackTrace();
@@ -670,7 +672,7 @@ public class NewNSTreatmentDialog extends DialogFragment implements View.OnClick
                         e.printStackTrace();
                     }
                 } else {
-                    ConfigBuilderPlugin.uploadCareportalEntryToNS(data);
+                    NSUpload.uploadCareportalEntryToNS(data);
                     Answers.getInstance().logCustom(new CustomEvent("NSTreatment"));
                 }
             }

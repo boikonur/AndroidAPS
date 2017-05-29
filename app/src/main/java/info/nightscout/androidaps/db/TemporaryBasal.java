@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Date;
 
+import info.nightscout.androidaps.MainApp;
 import info.nightscout.androidaps.data.Iob;
 import info.nightscout.androidaps.data.IobTotal;
 import info.nightscout.androidaps.interfaces.InsulinInterface;
@@ -48,13 +49,29 @@ public class TemporaryBasal implements Interval {
     public TemporaryBasal() {}
 
     public TemporaryBasal(ExtendedBolus extendedBolus) {
+        double basal = 0d;
+        if (ConfigBuilderPlugin.getActiveProfile() != null && ConfigBuilderPlugin.getActiveProfile().getProfile() != null)
+            basal = ConfigBuilderPlugin.getActiveProfile().getProfile().getBasal(NSProfile.secondsFromMidnight(extendedBolus.date));
         this.date = extendedBolus.date;
         this.isValid = extendedBolus.isValid;
         this.source = extendedBolus.source;
         this._id = extendedBolus._id;
         this.durationInMinutes = extendedBolus.durationInMinutes;
         this.isAbsolute = true;
-        this.absoluteRate = extendedBolus.absoluteRate();
+        this.absoluteRate = basal + extendedBolus.absoluteRate();
+    }
+
+    public TemporaryBasal clone() {
+        TemporaryBasal t = new TemporaryBasal();
+        t.date = date;
+        t.isValid = isValid;
+        t.source = source;
+        t._id = _id;
+        t.durationInMinutes = durationInMinutes;
+        t.isAbsolute = isAbsolute;
+        t.percentRate = percentRate;
+        t.absoluteRate = absoluteRate;
+        return t;
     }
 
     // -------- Interval interface ---------

@@ -15,6 +15,7 @@ import info.nightscout.androidaps.BuildConfig;
 import info.nightscout.androidaps.Config;
 import info.nightscout.androidaps.MainApp;
 import info.nightscout.androidaps.R;
+import info.nightscout.androidaps.data.DetailedBolusInfo;
 import info.nightscout.androidaps.data.PumpEnactResult;
 import info.nightscout.androidaps.db.ExtendedBolus;
 import info.nightscout.androidaps.db.TemporaryBasal;
@@ -27,8 +28,8 @@ import info.nightscout.androidaps.plugins.ConfigBuilder.ConfigBuilderPlugin;
 import info.nightscout.androidaps.plugins.Overview.events.EventOverviewBolusProgress;
 import info.nightscout.androidaps.plugins.PumpVirtual.events.EventVirtualPumpUpdateGui;
 import info.nightscout.androidaps.plugins.NSClientInternal.data.NSProfile;
-import info.nightscout.androidaps.plugins.TreatmentsFromHistory.TreatmentsFromHistoryPlugin;
 import info.nightscout.utils.DateUtil;
+import info.nightscout.utils.NSUpload;
 
 /**
  * Created by mike on 05.08.2016.
@@ -138,8 +139,8 @@ public class VirtualPumpPlugin implements PluginBase, PumpInterface {
     }
 
     @Override
-    public String treatmentPlugin() {
-        return TreatmentsFromHistoryPlugin.class.getName();
+    public boolean isFakingTempsByExtendedBoluses() {
+        return false;
     }
 
     @Override
@@ -176,7 +177,7 @@ public class VirtualPumpPlugin implements PluginBase, PumpInterface {
 
     @Override
     public void refreshDataFromPump(String reason) {
-        MainApp.getConfigBuilder().uploadDeviceStatus();
+        NSUpload.uploadDeviceStatus();
         lastDataTime = new Date();
     }
 
@@ -189,23 +190,23 @@ public class VirtualPumpPlugin implements PluginBase, PumpInterface {
     }
 
     @Override
-    public PumpEnactResult deliverTreatment(InsulinInterface insulinType, Double insulin, Integer carbs, Context context) {
+    public PumpEnactResult deliverTreatment(DetailedBolusInfo detailedBolusInfo) {
         PumpEnactResult result = new PumpEnactResult();
         result.success = true;
-        result.bolusDelivered = insulin;
-        result.carbsDelivered = carbs;
+        result.bolusDelivered = detailedBolusInfo.insulin;
+        result.carbsDelivered = detailedBolusInfo.carbs;
         result.comment = MainApp.instance().getString(R.string.virtualpump_resultok);
 
         Double delivering = 0d;
 
-        while (delivering < insulin) {
+        while (delivering < detailedBolusInfo.insulin) {
             try {
                 Thread.sleep(200);
             } catch (InterruptedException e) {
             }
             EventOverviewBolusProgress bolusingEvent = EventOverviewBolusProgress.getInstance();
             bolusingEvent.status = String.format(MainApp.sResources.getString(R.string.bolusdelivering), delivering);
-            bolusingEvent.percent = Math.min((int) (delivering / insulin * 100), 100);
+            bolusingEvent.percent = Math.min((int) (delivering / detailedBolusInfo.insulin * 100), 100);
             MainApp.bus().post(bolusingEvent);
             delivering += 0.1d;
         }
@@ -214,7 +215,7 @@ public class VirtualPumpPlugin implements PluginBase, PumpInterface {
         } catch (InterruptedException e) {
         }
         EventOverviewBolusProgress bolusingEvent = EventOverviewBolusProgress.getInstance();
-        bolusingEvent.status = String.format(MainApp.sResources.getString(R.string.bolusdelivered), insulin);
+        bolusingEvent.status = String.format(MainApp.sResources.getString(R.string.bolusdelivered), detailedBolusInfo.insulin);
         bolusingEvent.percent = 100;
         MainApp.bus().post(bolusingEvent);
         try {
@@ -222,9 +223,10 @@ public class VirtualPumpPlugin implements PluginBase, PumpInterface {
         } catch (InterruptedException e) {
         }
         if (Config.logPumpComm)
-            log.debug("Delivering treatment insulin: " + insulin + "U carbs: " + carbs + "g " + result);
+            log.debug("Delivering treatment insulin: " + detailedBolusInfo.insulin + "U carbs: " + detailedBolusInfo.carbs + "g " + result);
         MainApp.bus().post(new EventVirtualPumpUpdateGui());
         lastDataTime = new Date();
+        MainApp.getConfigBuilder().addTreatmentToHistory(detailedBolusInfo);
         return result;
     }
 
@@ -248,7 +250,7 @@ public class VirtualPumpPlugin implements PluginBase, PumpInterface {
         result.absolute = absoluteRate;
         result.duration = durationInMinutes;
         result.comment = MainApp.instance().getString(R.string.virtualpump_resultok);
-        treatmentsInterface.tempBasalStart(tempBasal);
+        treatmentsInterface.addToHistoryTempBasalStart(tempBasal);
         if (Config.logPumpComm)
             log.debug("Setting temp basal absolute: " + result);
         MainApp.bus().post(new EventVirtualPumpUpdateGui());
@@ -277,7 +279,7 @@ public class VirtualPumpPlugin implements PluginBase, PumpInterface {
         result.isTempCancel = false;
         result.duration = durationInMinutes;
         result.comment = MainApp.instance().getString(R.string.virtualpump_resultok);
-        treatmentsInterface.tempBasalStart(tempBasal);
+        treatmentsInterface.addToHistoryTempBasalStart(tempBasal);
         if (Config.logPumpComm)
             log.debug("Settings temp basal percent: " + result);
         MainApp.bus().post(new EventVirtualPumpUpdateGui());
@@ -301,7 +303,7 @@ public class VirtualPumpPlugin implements PluginBase, PumpInterface {
         result.isTempCancel = false;
         result.duration = durationInMinutes;
         result.comment = MainApp.instance().getString(R.string.virtualpump_resultok);
-        treatmentsInterface.extendedBolusStart(extendedBolus);
+        treatmentsInterface.addToHistoryExtendedBolusStart(extendedBolus);
         if (Config.logPumpComm)
             log.debug("Setting extended bolus: " + result);
         MainApp.bus().post(new EventVirtualPumpUpdateGui());
@@ -318,7 +320,7 @@ public class VirtualPumpPlugin implements PluginBase, PumpInterface {
         result.comment = MainApp.instance().getString(R.string.virtualpump_resultok);
         if (treatmentsInterface.isTempBasalInProgress()) {
             result.enacted = true;
-            treatmentsInterface.tempBasalStop(new Date().getTime());
+            treatmentsInterface.addToHistoryTempBasalStop(new Date().getTime());
             //tempBasal = null;
             if (Config.logPumpComm)
                 log.debug("Canceling temp basal: " + result);
@@ -332,8 +334,8 @@ public class VirtualPumpPlugin implements PluginBase, PumpInterface {
     public PumpEnactResult cancelExtendedBolus() {
         TreatmentsInterface treatmentsInterface = MainApp.getConfigBuilder();
         PumpEnactResult result = new PumpEnactResult();
-        if (treatmentsInterface.isExtendedBoluslInProgress()) {
-            treatmentsInterface.extendedBolusStop(new Date().getTime());
+        if (treatmentsInterface.isInHistoryExtendedBoluslInProgress()) {
+            treatmentsInterface.addToHistoryExtendedBolusStop(new Date().getTime());
         }
         result.success = true;
         result.enacted = true;
@@ -363,13 +365,13 @@ public class VirtualPumpPlugin implements PluginBase, PumpInterface {
             try {
                 extended.put("ActiveProfile", MainApp.getConfigBuilder().getActiveProfile().getProfile().getActiveProfile());
             } catch (Exception e) {}
-            TemporaryBasal tb = MainApp.getConfigBuilder().getTempBasal(new Date().getTime());
+            TemporaryBasal tb = MainApp.getConfigBuilder().getTempBasalFromHistory(new Date().getTime());
             if (tb != null) {
                 extended.put("TempBasalAbsoluteRate", tb.tempBasalConvertedToAbsolute(new Date().getTime()));
                 extended.put("TempBasalStart", DateUtil.dateAndTimeString(tb.date));
                 extended.put("TempBasalRemaining", tb.getPlannedRemainingMinutes());
             }
-            ExtendedBolus eb = MainApp.getConfigBuilder().getExtendedBolus(new Date().getTime());
+            ExtendedBolus eb = MainApp.getConfigBuilder().getExtendedBolusFromHistory(new Date().getTime());
             if (eb != null) {
                 extended.put("ExtendedBolusAbsoluteRate", eb.absoluteRate());
                 extended.put("ExtendedBolusStart", DateUtil.dateAndTimeString(eb.date));

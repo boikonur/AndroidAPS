@@ -26,6 +26,7 @@ import info.nightscout.androidaps.plugins.NSClientInternal.data.NSProfile;
 import info.nightscout.androidaps.plugins.OpenAPSMA.events.EventOpenAPSUpdateGui;
 import info.nightscout.androidaps.plugins.OpenAPSMA.events.EventOpenAPSUpdateResultGui;
 import info.nightscout.utils.DateUtil;
+import info.nightscout.utils.NSUpload;
 import info.nightscout.utils.Profiler;
 import info.nightscout.utils.Round;
 import info.nightscout.utils.SP;
@@ -200,7 +201,7 @@ public class OpenAPSAMAPlugin implements PluginBase, APSInterface {
         targetBg = verifyHardLimits(targetBg, "targetBg", Constants.VERY_HARD_LIMIT_TARGET_BG[0], Constants.VERY_HARD_LIMIT_TARGET_BG[1]);
 
         boolean isTempTarget = false;
-        TempTarget tempTarget = MainApp.getConfigBuilder().getTempTarget(new Date().getTime());
+        TempTarget tempTarget = MainApp.getConfigBuilder().getTempTargetFromHistory(new Date().getTime());
         if (tempTarget != null) {
             isTempTarget = true;
             minBg = verifyHardLimits(tempTarget.low, "minBg", Constants.VERY_HARD_LIMIT_TEMP_MIN_BG[0], Constants.VERY_HARD_LIMIT_TEMP_MIN_BG[1]);
@@ -249,7 +250,7 @@ public class OpenAPSAMAPlugin implements PluginBase, APSInterface {
             determineBasalResultAMA.changeRequested = false;
         // limit requests on openloop mode
         if (!MainApp.getConfigBuilder().isClosedModeEnabled()) {
-            if (MainApp.getConfigBuilder().isTempBasalInProgress() && Math.abs(determineBasalResultAMA.rate - MainApp.getConfigBuilder().getTempBasalAbsoluteRate()) < 0.1)
+            if (MainApp.getConfigBuilder().isTempBasalInProgress() && Math.abs(determineBasalResultAMA.rate - MainApp.getConfigBuilder().getTempBasalAbsoluteRateHistory()) < 0.1)
                 determineBasalResultAMA.changeRequested = false;
             if (!MainApp.getConfigBuilder().isTempBasalInProgress() && Math.abs(determineBasalResultAMA.rate - MainApp.getConfigBuilder().getBaseBasalRate()) < 0.1)
                 determineBasalResultAMA.changeRequested = false;
@@ -287,7 +288,7 @@ public class OpenAPSAMAPlugin implements PluginBase, APSInterface {
             msg += ".\n";
             msg += String.format(MainApp.sResources.getString(R.string.openapsma_valuelimitedto), value, newvalue);
             log.error(msg);
-            MainApp.getConfigBuilder().uploadError(msg);
+            NSUpload.uploadError(msg);
             ToastUtils.showToastInUiThread(MainApp.instance().getApplicationContext(), msg, R.raw.error);
         }
         return newvalue;

@@ -3,13 +3,11 @@ package info.nightscout.androidaps.plugins.ConfigBuilder;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.os.Bundle;
 import android.os.PowerManager;
 import android.preference.PreferenceManager;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
 
-import org.json.JSONException;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,7 +19,7 @@ import java.util.List;
 import info.nightscout.androidaps.Config;
 import info.nightscout.androidaps.MainApp;
 import info.nightscout.androidaps.R;
-import info.nightscout.androidaps.Services.Intents;
+import info.nightscout.androidaps.data.DetailedBolusInfo;
 import info.nightscout.androidaps.data.IobTotal;
 import info.nightscout.androidaps.data.MealData;
 import info.nightscout.androidaps.data.PumpEnactResult;
@@ -41,23 +39,16 @@ import info.nightscout.androidaps.interfaces.PumpDescription;
 import info.nightscout.androidaps.interfaces.PumpInterface;
 import info.nightscout.androidaps.interfaces.TreatmentsInterface;
 import info.nightscout.androidaps.plugins.Loop.APSResult;
-import info.nightscout.androidaps.plugins.Loop.DeviceStatus;
 import info.nightscout.androidaps.plugins.Loop.LoopPlugin;
-import info.nightscout.androidaps.plugins.NSClientInternal.data.DbLogger;
 import info.nightscout.androidaps.plugins.NSClientInternal.data.NSProfile;
-import info.nightscout.androidaps.plugins.OpenAPSAMA.DetermineBasalResultAMA;
-import info.nightscout.androidaps.plugins.OpenAPSMA.DetermineBasalResultMA;
 import info.nightscout.androidaps.plugins.Overview.Dialogs.BolusProgressDialog;
 import info.nightscout.androidaps.plugins.Overview.Dialogs.BolusProgressHelperActivity;
 import info.nightscout.androidaps.plugins.Overview.Notification;
 import info.nightscout.androidaps.plugins.Overview.events.EventDismissBolusprogressIfRunning;
 import info.nightscout.androidaps.plugins.Overview.events.EventDismissNotification;
 import info.nightscout.androidaps.plugins.Overview.events.EventNewNotification;
-import info.nightscout.androidaps.plugins.PumpDanaR.comm.MsgError;
-import info.nightscout.utils.BatteryLevel;
-import info.nightscout.utils.DateUtil;
+import info.nightscout.utils.NSUpload;
 import info.nightscout.utils.OverlappingIntervals;
-import info.nightscout.utils.SP;
 
 /**
  * Created by mike on 05.08.2016.
@@ -412,59 +403,68 @@ public class ConfigBuilderPlugin implements PluginBase, PumpInterface, Constrain
         else
             return 0d;
     }
-
+/*
     public PumpEnactResult deliverTreatmentFromBolusWizard(InsulinInterface insulinType, Context context, Double insulin, Integer carbs, Double glucose, String glucoseType, int carbTime, JSONObject boluscalc) {
         mWakeLock.acquire();
         PumpEnactResult result;
-        if (activePump != null) {
-            insulin = applyBolusConstraints(insulin);
-            carbs = applyCarbsConstraints(carbs);
+        insulin = applyBolusConstraints(insulin);
+        carbs = applyCarbsConstraints(carbs);
 
-            BolusProgressDialog bolusProgressDialog = null;
-            if (context != null) {
-                bolusProgressDialog = new BolusProgressDialog();
-                bolusProgressDialog.setInsulin(insulin);
-                bolusProgressDialog.show(((AppCompatActivity) context).getSupportFragmentManager(), "BolusProgress");
-            }
+        BolusProgressDialog bolusProgressDialog = null;
+        if (context != null) {
+            bolusProgressDialog = new BolusProgressDialog();
+            bolusProgressDialog.setInsulin(insulin);
+            bolusProgressDialog.show(((AppCompatActivity) context).getSupportFragmentManager(), "BolusProgress");
+        }
 
-            MainApp.bus().post(new EventBolusRequested(insulin));
+        MainApp.bus().post(new EventBolusRequested(insulin));
 
-            result = activePump.deliverTreatment(insulinType, insulin, carbs, context);
+        result = activePump.deliverTreatment(insulinType, insulin, carbs, context);
 
-            BolusProgressDialog.bolusEnded = true;
+        BolusProgressDialog.bolusEnded = true;
 
-            MainApp.bus().post(new EventDismissBolusprogressIfRunning(result));
+        MainApp.bus().post(new EventDismissBolusprogressIfRunning(result));
 
-            if (result.success) {
-                Treatment t = new Treatment(insulinType);
-                t.insulin = result.bolusDelivered;
-                if (carbTime == 0)
-                    t.carbs = (double) result.carbsDelivered; // with different carbTime record will come back from nightscout
-                t.date = new Date().getDate();
-                t.mealBolus = result.carbsDelivered > 0;
-                MainApp.getDbHelper().create(t);
-                t.carbs = (double) result.carbsDelivered;
-                uploadBolusWizardRecord(t, glucose, glucoseType, carbTime, boluscalc);
-            }
-        } else {
-            if (Config.logCongigBuilderActions)
-                log.debug("Creating treatment: " + insulin + " carbs: " + carbs);
+        if (result.success) {
             Treatment t = new Treatment(insulinType);
-            t.insulin = insulin;
-            t.carbs = (double) carbs;
-            t.date = new Date().getDate();
-            t.mealBolus = t.carbs > 0;
-            MainApp.getDbHelper().create(t);
-            t.sendToNSClient();
-            result = new PumpEnactResult();
-            result.success = true;
-            result.bolusDelivered = insulin;
-            result.carbsDelivered = carbs;
+            t.insulin = result.bolusDelivered;
+            if (carbTime == 0)
+                t.carbs = (double) result.carbsDelivered; // with different carbTime record will come back from nightscout
+            t.date = new Date().getTime();
+            t.mealBolus = result.carbsDelivered > 0;
+            addTreatmentToHistory(t);
+            t.carbs = (double) result.carbsDelivered;
+            NSUpload.uploadBolusWizardRecord(t, glucose, glucoseType, carbTime, boluscalc);
         }
         mWakeLock.release();
         return result;
     }
+*/
+    @Override
+    public PumpEnactResult deliverTreatment(DetailedBolusInfo detailedBolusInfo) {
+        mWakeLock.acquire();
+        PumpEnactResult result;
+        detailedBolusInfo.insulin = applyBolusConstraints(detailedBolusInfo.insulin);
+        detailedBolusInfo.carbs = applyCarbsConstraints((int) detailedBolusInfo.carbs);
 
+        BolusProgressDialog bolusProgressDialog = null;
+        if (detailedBolusInfo.context != null) {
+            bolusProgressDialog = new BolusProgressDialog();
+            bolusProgressDialog.setInsulin(detailedBolusInfo.insulin);
+            bolusProgressDialog.show(((AppCompatActivity) detailedBolusInfo.context).getSupportFragmentManager(), "BolusProgress");
+        }
+
+        MainApp.bus().post(new EventBolusRequested(detailedBolusInfo.insulin));
+
+        result = activePump.deliverTreatment(detailedBolusInfo);
+
+        BolusProgressDialog.bolusEnded = true;
+        MainApp.bus().post(new EventDismissBolusprogressIfRunning(result));
+
+        mWakeLock.release();
+        return result;
+    }
+/*
     @Override
     public PumpEnactResult deliverTreatment(InsulinInterface insulinType, Double insulin, Integer carbs, Context context) {
         return deliverTreatment(insulinType, insulin, carbs, context, true);
@@ -473,53 +473,47 @@ public class ConfigBuilderPlugin implements PluginBase, PumpInterface, Constrain
     public PumpEnactResult deliverTreatment(InsulinInterface insulinType, Double insulin, Integer carbs, Context context, boolean createTreatment) {
         mWakeLock.acquire();
         PumpEnactResult result;
-        if (activePump != null) {
-            insulin = applyBolusConstraints(insulin);
-            carbs = applyCarbsConstraints(carbs);
+        insulin = applyBolusConstraints(insulin);
+        carbs = applyCarbsConstraints(carbs);
 
-            BolusProgressDialog bolusProgressDialog = null;
-            if (context != null) {
-                bolusProgressDialog = new BolusProgressDialog();
-                bolusProgressDialog.setInsulin(insulin);
-                bolusProgressDialog.show(((AppCompatActivity) context).getSupportFragmentManager(), "BolusProgress");
-            } else {
-                Intent i = new Intent();
-                i.putExtra("insulin", insulin.doubleValue());
-                i.setClass(MainApp.instance(), BolusProgressHelperActivity.class);
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                MainApp.instance().startActivity(i);
-            }
-
-            MainApp.bus().post(new EventBolusRequested(insulin));
-
-            result = activePump.deliverTreatment(insulinType, insulin, carbs, context);
-
-            BolusProgressDialog.bolusEnded = true;
-
-            MainApp.bus().post(new EventDismissBolusprogressIfRunning(result));
-
-            if (Config.logCongigBuilderActions)
-                log.debug("deliverTreatment insulin: " + insulin + " carbs: " + carbs + " success: " + result.success + " enacted: " + result.enacted + " bolusDelivered: " + result.bolusDelivered);
-
-            if (result.success && createTreatment) {
-                Treatment t = new Treatment(insulinType);
-                t.insulin = result.bolusDelivered;
-                t.carbs = (double) result.carbsDelivered;
-                t.date = new Date().getTime();
-                t.mealBolus = t.carbs > 0;
-                MainApp.getDbHelper().create(t);
-                t.sendToNSClient();
-            }
+        BolusProgressDialog bolusProgressDialog = null;
+        if (context != null) {
+            bolusProgressDialog = new BolusProgressDialog();
+            bolusProgressDialog.setInsulin(insulin);
+            bolusProgressDialog.show(((AppCompatActivity) context).getSupportFragmentManager(), "BolusProgress");
         } else {
-            log.error("activePump==null");
-            result = new PumpEnactResult();
-            result.success = false;
+            Intent i = new Intent();
+            i.putExtra("insulin", insulin.doubleValue());
+            i.setClass(MainApp.instance(), BolusProgressHelperActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            MainApp.instance().startActivity(i);
+        }
+
+        MainApp.bus().post(new EventBolusRequested(insulin));
+
+        result = activePump.deliverTreatment(insulinType, insulin, carbs, context);
+
+        BolusProgressDialog.bolusEnded = true;
+
+        MainApp.bus().post(new EventDismissBolusprogressIfRunning(result));
+
+        if (Config.logCongigBuilderActions)
+            log.debug("deliverTreatment insulin: " + insulin + " carbs: " + carbs + " success: " + result.success + " enacted: " + result.enacted + " bolusDelivered: " + result.bolusDelivered);
+
+        if (result.success && createTreatment) {
+            Treatment t = new Treatment(insulinType);
+            t.insulin = result.bolusDelivered;
+            t.carbs = (double) result.carbsDelivered;
+            t.date = new Date().getTime();
+            t.mealBolus = t.carbs > 0;
+            addTreatmentToHistory(t);
+            NSUpload.uploadTreatment(t);
         }
         mWakeLock.release();
         return result;
     }
 
-
+*/
     @Override
     public void stopBolusDelivering() {
         activePump.stopBolusDelivering();
@@ -538,13 +532,6 @@ public class ConfigBuilderPlugin implements PluginBase, PumpInterface, Constrain
         PumpEnactResult result = activePump.setTempBasalAbsolute(rateAfterConstraints, durationInMinutes);
         if (Config.logCongigBuilderActions)
             log.debug("setTempBasalAbsolute rate: " + rateAfterConstraints + " durationInMinutes: " + durationInMinutes + " success: " + result.success + " enacted: " + result.enacted);
-        if (result.enacted && result.success) {
-            if (result.isPercent) {
-                uploadTempBasalStartPercent(result.percent, result.duration);
-            } else {
-                uploadTempBasalStartAbsolute(result.absolute, result.duration);
-            }
-        }
         return result;
     }
 
@@ -561,9 +548,6 @@ public class ConfigBuilderPlugin implements PluginBase, PumpInterface, Constrain
         PumpEnactResult result = activePump.setTempBasalPercent(percentAfterConstraints, durationInMinutes);
         if (Config.logCongigBuilderActions)
             log.debug("setTempBasalPercent percent: " + percentAfterConstraints + " durationInMinutes: " + durationInMinutes + " success: " + result.success + " enacted: " + result.enacted);
-        if (result.enacted && result.success) {
-            uploadTempBasalStartPercent(result.percent, result.duration);
-        }
         return result;
     }
 
@@ -573,10 +557,6 @@ public class ConfigBuilderPlugin implements PluginBase, PumpInterface, Constrain
         PumpEnactResult result = activePump.setExtendedBolus(rateAfterConstraints, durationInMinutes);
         if (Config.logCongigBuilderActions)
             log.debug("setExtendedBolus rate: " + rateAfterConstraints + " durationInMinutes: " + durationInMinutes + " success: " + result.success + " enacted: " + result.enacted);
-        if (result.enacted && result.success) {
-            uploadExtendedBolus(result.bolusDelivered, result.duration);
-            MainApp.bus().post(new EventTreatmentChange());
-        }
         return result;
     }
 
@@ -585,9 +565,6 @@ public class ConfigBuilderPlugin implements PluginBase, PumpInterface, Constrain
         PumpEnactResult result = activePump.cancelTempBasal();
         if (Config.logCongigBuilderActions)
             log.debug("cancelTempBasal success: " + result.success + " enacted: " + result.enacted);
-        if (result.enacted && result.success) {
-            uploadTempBasalEnd();
-        }
         return result;
     }
 
@@ -605,6 +582,7 @@ public class ConfigBuilderPlugin implements PluginBase, PumpInterface, Constrain
      * @param request
      * @return
      */
+
     public PumpEnactResult applyAPSRequest(APSResult request) {
         request.rate = applyBasalConstraints(request.rate);
         PumpEnactResult result;
@@ -644,10 +622,10 @@ public class ConfigBuilderPlugin implements PluginBase, PumpInterface, Constrain
                 if (Config.logCongigBuilderActions)
                     log.debug("applyAPSRequest: Basal set correctly");
             }
-        } else if (isTempBasalInProgress() && Math.abs(request.rate - getTempBasalAbsoluteRate()) < 0.05) {
+        } else if (isTempBasalInProgress() && Math.abs(request.rate - getTempBasalAbsoluteRateHistory()) < 0.05) {
             result = new PumpEnactResult();
-            result.absolute = getTempBasalAbsoluteRate();
-            result.duration = getTempBasal(new Date().getTime()).getPlannedRemainingMinutes();
+            result.absolute = getTempBasalAbsoluteRateHistory();
+            result.duration = getTempBasalFromHistory(new Date().getTime()).getPlannedRemainingMinutes();
             result.enacted = false;
             result.comment = "Temp basal set correctly";
             result.success = true;
@@ -701,12 +679,8 @@ public class ConfigBuilderPlugin implements PluginBase, PumpInterface, Constrain
     }
 
     @Override
-    public String treatmentPlugin() {
-        if (activePump != null) {
-            return activePump.treatmentPlugin();
-        } else {
-            return null;
-        }
+    public boolean isFakingTempsByExtendedBoluses() {
+        return activePump.isFakingTempsByExtendedBoluses();
     }
 
     /**
@@ -825,296 +799,6 @@ public class ConfigBuilderPlugin implements PluginBase, PumpInterface, Constrain
         return maxIobAfterConstrain;
     }
 
-    public void uploadTempBasalStartAbsolute(Double absolute, double durationInMinutes) {
-        try {
-            Context context = MainApp.instance().getApplicationContext();
-            JSONObject data = new JSONObject();
-            data.put("eventType", "Temp Basal");
-            data.put("duration", durationInMinutes);
-            data.put("absolute", absolute);
-            data.put("created_at", DateUtil.toISOString(new Date()));
-            data.put("enteredBy", MainApp.instance().getString(R.string.app_name));
-            data.put("notes", MainApp.sResources.getString(R.string.androidaps_tempbasalstartnote) + " " + absolute + "u/h " + durationInMinutes + " min"); // ECOR
-            Bundle bundle = new Bundle();
-            bundle.putString("action", "dbAdd");
-            bundle.putString("collection", "treatments");
-            bundle.putString("data", data.toString());
-            Intent intent = new Intent(Intents.ACTION_DATABASE);
-            intent.putExtras(bundle);
-            intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
-            context.sendBroadcast(intent);
-            DbLogger.dbAdd(intent, data.toString(), ConfigBuilderPlugin.class);
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-    }
-
-    public static void uploadOpenAPSOffline(double durationInMinutes) {
-        try {
-            Context context = MainApp.instance().getApplicationContext();
-            JSONObject data = new JSONObject();
-            data.put("eventType", "OpenAPS Offline");
-            data.put("duration", durationInMinutes);
-            data.put("created_at", DateUtil.toISOString(new Date()));
-            data.put("enteredBy", MainApp.instance().getString(R.string.app_name));
-            Bundle bundle = new Bundle();
-            bundle.putString("action", "dbAdd");
-            bundle.putString("collection", "treatments");
-            bundle.putString("data", data.toString());
-            Intent intent = new Intent(Intents.ACTION_DATABASE);
-            intent.putExtras(bundle);
-            intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
-            context.sendBroadcast(intent);
-            DbLogger.dbAdd(intent, data.toString(), ConfigBuilderPlugin.class);
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-    }
-
-    public void uploadTempBasalStartPercent(Integer percent, double durationInMinutes) {
-        try {
-            SharedPreferences SP = PreferenceManager.getDefaultSharedPreferences(MainApp.instance().getApplicationContext());
-            boolean useAbsolute = SP.getBoolean("ns_sync_use_absolute", false);
-            if (useAbsolute) {
-                double absolute = getBaseBasalRate() * percent / 100d;
-                uploadTempBasalStartAbsolute(absolute, durationInMinutes);
-            } else {
-                Context context = MainApp.instance().getApplicationContext();
-                JSONObject data = new JSONObject();
-                data.put("eventType", "Temp Basal");
-                data.put("duration", durationInMinutes);
-                data.put("percent", percent - 100);
-                data.put("created_at", DateUtil.toISOString(new Date()));
-                data.put("enteredBy", MainApp.instance().getString(R.string.app_name));
-                data.put("notes", MainApp.sResources.getString(R.string.androidaps_tempbasalstartnote) + " " + percent + "% " + durationInMinutes + " min"); // ECOR
-                Bundle bundle = new Bundle();
-                bundle.putString("action", "dbAdd");
-                bundle.putString("collection", "treatments");
-                bundle.putString("data", data.toString());
-                Intent intent = new Intent(Intents.ACTION_DATABASE);
-                intent.putExtras(bundle);
-                intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
-                context.sendBroadcast(intent);
-                DbLogger.dbAdd(intent, data.toString(), ConfigBuilderPlugin.class);
-            }
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-    }
-
-    public void uploadTempBasalEnd() {
-        try {
-            Context context = MainApp.instance().getApplicationContext();
-            JSONObject data = new JSONObject();
-            data.put("eventType", "Temp Basal");
-            data.put("created_at", DateUtil.toISOString(new Date()));
-            data.put("enteredBy", MainApp.instance().getString(R.string.app_name));
-            data.put("notes", MainApp.sResources.getString(R.string.androidaps_tempbasalendnote)); // ECOR
-            Bundle bundle = new Bundle();
-            bundle.putString("action", "dbAdd");
-            bundle.putString("collection", "treatments");
-            bundle.putString("data", data.toString());
-            Intent intent = new Intent(Intents.ACTION_DATABASE);
-            intent.putExtras(bundle);
-            intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
-            context.sendBroadcast(intent);
-            DbLogger.dbAdd(intent, data.toString(), ConfigBuilderPlugin.class);
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-    }
-
-    public void uploadExtendedBolus(Double insulin, double durationInMinutes) {
-        try {
-            Context context = MainApp.instance().getApplicationContext();
-            JSONObject data = new JSONObject();
-            data.put("eventType", "Combo Bolus");
-            data.put("duration", durationInMinutes);
-            data.put("splitNow", 0);
-            data.put("splitExt", 100);
-            data.put("enteredinsulin", insulin);
-            data.put("relative", insulin);
-            data.put("created_at", DateUtil.toISOString(new Date()));
-            data.put("enteredBy", MainApp.instance().getString(R.string.app_name));
-            Bundle bundle = new Bundle();
-            bundle.putString("action", "dbAdd");
-            bundle.putString("collection", "treatments");
-            bundle.putString("data", data.toString());
-            Intent intent = new Intent(Intents.ACTION_DATABASE);
-            intent.putExtras(bundle);
-            intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
-            context.sendBroadcast(intent);
-            DbLogger.dbAdd(intent, data.toString(), ConfigBuilderPlugin.class);
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-    }
-
-    public void uploadDeviceStatus() {
-        DeviceStatus deviceStatus = new DeviceStatus();
-        try {
-            LoopPlugin.LastRun lastRun = LoopPlugin.lastRun;
-            if (lastRun != null && lastRun.lastAPSRun.getTime() > new Date().getTime() - 300 * 1000L) {
-                // do not send if result is older than 1 min
-                APSResult apsResult = lastRun.request;
-                apsResult.json().put("timestamp", DateUtil.toISOString(lastRun.lastAPSRun));
-                deviceStatus.suggested = apsResult.json();
-
-                if (lastRun.request instanceof DetermineBasalResultMA) {
-                    DetermineBasalResultMA result = (DetermineBasalResultMA) lastRun.request;
-                    deviceStatus.iob = result.iob.json();
-                    deviceStatus.iob.put("time", DateUtil.toISOString(lastRun.lastAPSRun));
-                }
-
-                if (lastRun.request instanceof DetermineBasalResultAMA) {
-                    DetermineBasalResultAMA result = (DetermineBasalResultAMA) lastRun.request;
-                    deviceStatus.iob = result.iob.json();
-                    deviceStatus.iob.put("time", DateUtil.toISOString(lastRun.lastAPSRun));
-                }
-
-                if (lastRun.setByPump != null && lastRun.setByPump.enacted) { // enacted
-                    deviceStatus.enacted = lastRun.request.json();
-                    deviceStatus.enacted.put("rate", lastRun.setByPump.json().get("rate"));
-                    deviceStatus.enacted.put("duration", lastRun.setByPump.json().get("duration"));
-                    deviceStatus.enacted.put("recieved", true);
-                    JSONObject requested = new JSONObject();
-                    requested.put("duration", lastRun.request.duration);
-                    requested.put("rate", lastRun.request.rate);
-                    requested.put("temp", "absolute");
-                    deviceStatus.enacted.put("requested", requested);
-                }
-            } else {
-                log.debug("OpenAPS data too old to upload");
-            }
-            if (activePump != null) {
-                deviceStatus.device = "openaps://" + deviceID();
-                JSONObject pumpstatus = getJSONStatus();
-                if (pumpstatus != null) {
-                    deviceStatus.pump = pumpstatus;
-                }
-            }
-
-            int batteryLevel = BatteryLevel.getBatteryLevel();
-            deviceStatus.uploaderBattery = batteryLevel;
-
-            deviceStatus.created_at = DateUtil.toISOString(new Date());
-            deviceStatus.sendToNSClient();
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-    }
-
-    public void uploadBolusWizardRecord(Treatment t, double glucose, String glucoseType, int carbTime, JSONObject boluscalc) {
-        JSONObject data = new JSONObject();
-        try {
-            data.put("eventType", "Bolus Wizard");
-            if (t.insulin != 0d) data.put("insulin", t.insulin);
-            if (t.carbs != 0d) data.put("carbs", t.carbs.intValue());
-            data.put("created_at", DateUtil.toISOString(t.date));
-            data.put("date", t.date);
-            if (glucose != 0d) data.put("glucose", glucose);
-            data.put("glucoseType", glucoseType);
-            data.put("boluscalc", boluscalc);
-            if (carbTime != 0) data.put("preBolus", carbTime);
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        uploadCareportalEntryToNS(data);
-    }
-
-    public static void uploadCareportalEntryToNS(JSONObject data) {
-        try {
-            if (data.has("preBolus") && data.has("carbs")) {
-                JSONObject prebolus = new JSONObject();
-                prebolus.put("carbs", data.get("carbs"));
-                data.remove("carbs");
-                prebolus.put("eventType", data.get("eventType"));
-                if (data.has("enteredBy")) prebolus.put("enteredBy", data.get("enteredBy"));
-                if (data.has("notes")) prebolus.put("notes", data.get("notes"));
-                long mills = DateUtil.fromISODateString(data.getString("created_at")).getTime();
-                Date preBolusDate = new Date(mills + data.getInt("preBolus") * 60000L);
-                prebolus.put("created_at", DateUtil.toISOString(preBolusDate));
-                uploadCareportalEntryToNS(prebolus);
-            }
-            Context context = MainApp.instance().getApplicationContext();
-            Bundle bundle = new Bundle();
-            bundle.putString("action", "dbAdd");
-            bundle.putString("collection", "treatments");
-            bundle.putString("data", data.toString());
-            Intent intent = new Intent(Intents.ACTION_DATABASE);
-            intent.putExtras(bundle);
-            intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
-            context.sendBroadcast(intent);
-            DbLogger.dbAdd(intent, data.toString(), ConfigBuilderPlugin.class);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-    }
-
-    public static void removeCareportalEntryFromNS(String _id) {
-        try {
-            Context context = MainApp.instance().getApplicationContext();
-            Bundle bundle = new Bundle();
-            bundle.putString("action", "dbRemove");
-            bundle.putString("collection", "treatments");
-            bundle.putString("_id", _id);
-            Intent intent = new Intent(Intents.ACTION_DATABASE);
-            intent.putExtras(bundle);
-            intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
-            context.sendBroadcast(intent);
-            DbLogger.dbRemove(intent, _id, ConfigBuilderPlugin.class);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-    }
-
-    public void uploadError(String error) {
-        Context context = MainApp.instance().getApplicationContext();
-        Bundle bundle = new Bundle();
-        bundle.putString("action", "dbAdd");
-        bundle.putString("collection", "treatments");
-        JSONObject data = new JSONObject();
-        try {
-            data.put("eventType", "Announcement");
-            data.put("created_at", DateUtil.toISOString(new Date()));
-            data.put("notes", error);
-            data.put("isAnnouncement", true);
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        bundle.putString("data", data.toString());
-        Intent intent = new Intent(Intents.ACTION_DATABASE);
-        intent.putExtras(bundle);
-        intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
-        context.sendBroadcast(intent);
-        DbLogger.dbAdd(intent, data.toString(), MsgError.class);
-    }
-
-    public void uploadAppStart() {
-        if (SP.getBoolean(R.string.key_ns_logappstartedevent, true)) {
-            Context context = MainApp.instance().getApplicationContext();
-            Bundle bundle = new Bundle();
-            bundle.putString("action", "dbAdd");
-            bundle.putString("collection", "treatments");
-            JSONObject data = new JSONObject();
-            try {
-                data.put("eventType", "Note");
-                data.put("created_at", DateUtil.toISOString(new Date()));
-                data.put("notes", MainApp.sResources.getString(R.string.androidaps_start));
-            } catch (JSONException e) {
-                e.printStackTrace();
-            }
-            bundle.putString("data", data.toString());
-            Intent intent = new Intent(Intents.ACTION_DATABASE);
-            intent.putExtras(bundle);
-            intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
-            context.sendBroadcast(intent);
-            DbLogger.dbAdd(intent, data.toString(), ConfigBuilderPlugin.class);
-        }
-    }
-
     //  ****** Treatments interface *****
     @Override
     public void updateTotalIOBTreatments() {
@@ -1152,23 +836,23 @@ public class ConfigBuilderPlugin implements PluginBase, PumpInterface, Constrain
     }
 
     @Override
-    public List<Treatment> getTreatments() {
-        return activeTreatments.getTreatments();
+    public List<Treatment> getTreatmentsFromHistory() {
+        return activeTreatments.getTreatmentsFromHistory();
     }
 
     @Override
-    public List<Treatment> getTreatments5MinBack(long time) {
-        return activeTreatments.getTreatments5MinBack(time);
+    public List<Treatment> getTreatments5MinBackFromHistory(long time) {
+        return activeTreatments.getTreatments5MinBackFromHistory(time);
     }
 
     @Override
-    public boolean isRealTempBasalInProgress() {
-        return activeTreatments.isRealTempBasalInProgress();
+    public boolean isInHistoryRealTempBasalInProgress() {
+        return activeTreatments.isInHistoryRealTempBasalInProgress();
     }
 
     @Override
-    public TemporaryBasal getRealTempBasal(long time) {
-        return activeTreatments.getRealTempBasal(time);
+    public TemporaryBasal getRealTempBasalFromHistory(long time) {
+        return activeTreatments.getRealTempBasalFromHistory(time);
     }
 
     @Override
@@ -1177,68 +861,90 @@ public class ConfigBuilderPlugin implements PluginBase, PumpInterface, Constrain
     }
 
     @Override
-    public TemporaryBasal getTempBasal(long time) {
-        return activeTreatments.getTempBasal(time);
+    public TemporaryBasal getTempBasalFromHistory(long time) {
+        return activeTreatments.getTempBasalFromHistory(time);
     }
 
     @Override
-    public double getTempBasalAbsoluteRate() {
-        return activeTreatments.getTempBasalAbsoluteRate();
+    public double getTempBasalAbsoluteRateHistory() {
+        return activeTreatments.getTempBasalAbsoluteRateHistory();
     }
 
     @Override
-    public double getTempBasalRemainingMinutes() {
-        return activeTreatments.getTempBasalRemainingMinutes();
+    public double getTempBasalRemainingMinutesFromHistory() {
+        return activeTreatments.getTempBasalRemainingMinutesFromHistory();
     }
 
     @Override
-    public OverlappingIntervals<TemporaryBasal> getTemporaryBasals() {
-        return activeTreatments.getTemporaryBasals();
+    public OverlappingIntervals<TemporaryBasal> getTemporaryBasalsFromHistory() {
+        return activeTreatments.getTemporaryBasalsFromHistory();
     }
 
     @Override
-    public void tempBasalStart(TemporaryBasal tempBasal) {
-        activeTreatments.tempBasalStart(tempBasal);
+    public void addToHistoryTempBasalStart(TemporaryBasal tempBasal) {
+        activeTreatments.addToHistoryTempBasalStart(tempBasal);
+        if (tempBasal.isAbsolute)
+            NSUpload.uploadTempBasalStartAbsolute(tempBasal, null);
+        else
+            NSUpload.uploadTempBasalStartPercent(tempBasal);
+
     }
 
     @Override
-    public void tempBasalStop(long time) {
-        activeTreatments.tempBasalStop(time);
+    public void addToHistoryTempBasalStop(long time) {
+        activeTreatments.addToHistoryTempBasalStop(time);
+        NSUpload.uploadTempBasalEnd(time, false);
     }
 
     @Override
-    public boolean isExtendedBoluslInProgress() {
-        return activeTreatments.isExtendedBoluslInProgress();
+    public boolean isInHistoryExtendedBoluslInProgress() {
+        return activeTreatments.isInHistoryExtendedBoluslInProgress();
     }
 
     @Override
-    public ExtendedBolus getExtendedBolus(long time) {
-        return activeTreatments.getExtendedBolus(time);
+    public ExtendedBolus getExtendedBolusFromHistory(long time) {
+        return activeTreatments.getExtendedBolusFromHistory(time);
     }
 
     @Override
-    public void extendedBolusStart(ExtendedBolus extendedBolus) {
-        activeTreatments.extendedBolusStart(extendedBolus);
+    public void addToHistoryExtendedBolusStart(ExtendedBolus extendedBolus) {
+        activeTreatments.addToHistoryExtendedBolusStart(extendedBolus);
+        if (activePump.isFakingTempsByExtendedBoluses())
+            NSUpload.uploadTempBasalStartAbsolute(new TemporaryBasal(extendedBolus), extendedBolus.insulin);
+        else
+            NSUpload.uploadExtendedBolus(extendedBolus);
     }
 
     @Override
-    public void extendedBolusStop(long time) {
-        activeTreatments.extendedBolusStop(time);
+    public void addToHistoryExtendedBolusStop(long time) {
+        activeTreatments.addToHistoryExtendedBolusStop(time);
+        if (activePump.isFakingTempsByExtendedBoluses())
+            NSUpload.uploadTempBasalEnd(time, true);
+        else
+            NSUpload.uploadExtendedBolusEnd(time);
     }
 
     @Override
-    public OverlappingIntervals<ExtendedBolus> getExtendedBoluses() {
-        return activeTreatments.getExtendedBoluses();
+    public OverlappingIntervals<ExtendedBolus> getExtendedBolusesFromHistory() {
+        return activeTreatments.getExtendedBolusesFromHistory();
     }
 
     @Override
-    public TempTarget getTempTarget(long time) {
-        return activeTreatments.getTempTarget(time);
+    public void addTreatmentToHistory(DetailedBolusInfo detailedBolusInfo) {
+        if (!detailedBolusInfo.addToTreatments)
+            return;
+        activeTreatments.addTreatmentToHistory(detailedBolusInfo);
+        NSUpload.uploadBolusWizardRecord(detailedBolusInfo);
     }
 
     @Override
-    public OverlappingIntervals<TempTarget> getTempTargets() {
-        return activeTreatments.getTempTargets();
+    public TempTarget getTempTargetFromHistory(long time) {
+        return activeTreatments.getTempTargetFromHistory(time);
+    }
+
+    @Override
+    public OverlappingIntervals<TempTarget> getTempTargetsFromHistory() {
+        return activeTreatments.getTempTargetsFromHistory();
     }
 
     @Override

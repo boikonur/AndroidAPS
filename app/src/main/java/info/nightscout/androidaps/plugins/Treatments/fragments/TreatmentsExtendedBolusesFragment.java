@@ -1,4 +1,4 @@
-package info.nightscout.androidaps.plugins.TreatmentsFromHistory.fragments;
+package info.nightscout.androidaps.plugins.Treatments.fragments;
 
 import android.app.Activity;
 import android.content.Context;
@@ -33,6 +33,7 @@ import info.nightscout.androidaps.events.EventExtendedBolusChange;
 import info.nightscout.androidaps.events.EventNewBG;
 import info.nightscout.utils.DateUtil;
 import info.nightscout.utils.DecimalFormatter;
+import info.nightscout.utils.NSUpload;
 import info.nightscout.utils.OverlappingIntervals;
 
 
@@ -63,7 +64,7 @@ public class TreatmentsExtendedBolusesFragment extends Fragment {
             ExtendedBolus extendedBolus = extendedBolusList.getReversed(position);
             if (extendedBolus.isEndingEvent()) {
                 holder.date.setText(DateUtil.dateAndTimeString(extendedBolus.date));
-                holder.duration.setText(MainApp.sResources.getString(R.string.stopevent));
+                holder.duration.setText(MainApp.sResources.getString(R.string.cancel));
                 holder.insulin.setText("");
                 holder.realDuration.setText("");
                 holder.iob.setText("");
@@ -142,7 +143,7 @@ public class TreatmentsExtendedBolusesFragment extends Fragment {
                             public void onClick(DialogInterface dialog, int id) {
                                 final String _id = extendedBolus._id;
                                 if (_id != null && !_id.equals("")) {
-                                    MainApp.getConfigBuilder().removeCareportalEntryFromNS(_id);
+                                    NSUpload.removeCareportalEntryFromNS(_id);
                                 }
                                 MainApp.getDbHelper().delete(extendedBolus);
                                 Answers.getInstance().logCustom(new CustomEvent("RemoveExtendedBolus"));
@@ -166,7 +167,7 @@ public class TreatmentsExtendedBolusesFragment extends Fragment {
         llm = new LinearLayoutManager(view.getContext());
         recyclerView.setLayoutManager(llm);
 
-        RecyclerViewAdapter adapter = new RecyclerViewAdapter(MainApp.getConfigBuilder().getExtendedBoluses());
+        RecyclerViewAdapter adapter = new RecyclerViewAdapter(MainApp.getConfigBuilder().getExtendedBolusesFromHistory());
         recyclerView.setAdapter(adapter);
 
         context = getContext();
@@ -203,7 +204,7 @@ public class TreatmentsExtendedBolusesFragment extends Fragment {
             activity.runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    recyclerView.swapAdapter(new RecyclerViewAdapter(MainApp.getConfigBuilder().getExtendedBoluses()), false);
+                    recyclerView.swapAdapter(new RecyclerViewAdapter(MainApp.getConfigBuilder().getExtendedBolusesFromHistory()), false);
                 }
             });
     }

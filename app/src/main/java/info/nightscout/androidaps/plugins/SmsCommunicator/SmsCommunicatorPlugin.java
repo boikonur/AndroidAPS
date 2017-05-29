@@ -21,6 +21,7 @@ import info.nightscout.androidaps.Constants;
 import info.nightscout.androidaps.MainApp;
 import info.nightscout.androidaps.R;
 import info.nightscout.androidaps.Services.Intents;
+import info.nightscout.androidaps.data.DetailedBolusInfo;
 import info.nightscout.androidaps.data.GlucoseStatus;
 import info.nightscout.androidaps.data.IobTotal;
 import info.nightscout.androidaps.data.PumpEnactResult;
@@ -40,6 +41,7 @@ import info.nightscout.androidaps.plugins.Overview.events.EventNewNotification;
 import info.nightscout.androidaps.plugins.SmsCommunicator.events.EventNewSMS;
 import info.nightscout.androidaps.plugins.SmsCommunicator.events.EventSmsCommunicatorUpdateGui;
 import info.nightscout.utils.DecimalFormatter;
+import info.nightscout.utils.NSUpload;
 import info.nightscout.utils.SP;
 import info.nightscout.utils.SafeParse;
 import info.nightscout.utils.XdripCalibrations;
@@ -316,7 +318,7 @@ public class SmsCommunicatorPlugin implements PluginBase {
                                 final LoopPlugin activeloop = ConfigBuilderPlugin.getActiveLoop();
                                 activeloop.suspendTo(0);
                                 MainApp.bus().post(new EventRefreshGui(false));
-                                ConfigBuilderPlugin.uploadOpenAPSOffline(0);
+                                NSUpload.uploadOpenAPSOffline(0);
                                 reply = MainApp.sResources.getString(R.string.smscommunicator_loopresumed);
                                 sendSMSToAllNumbers(new Sms(receivedSms.phoneNumber, reply, new Date()));
                                 Answers.getInstance().logCustom(new CustomEvent("SMS_Loop_Resume"));
@@ -464,7 +466,9 @@ public class SmsCommunicatorPlugin implements PluginBase {
                         PumpInterface pumpInterface = MainApp.getConfigBuilder();
                         if (pumpInterface != null) {
                             danaRPlugin = (DanaRPlugin) MainApp.getSpecificPlugin(DanaRPlugin.class);
-                            PumpEnactResult result = pumpInterface.deliverTreatment(ConfigBuilderPlugin.getActiveInsulin(), bolusWaitingForConfirmation.bolusRequested, 0, null);
+                            DetailedBolusInfo detailedBolusInfo = new DetailedBolusInfo();
+                            detailedBolusInfo.insulin = bolusWaitingForConfirmation.bolusRequested;
+                            PumpEnactResult result = pumpInterface.deliverTreatment(detailedBolusInfo);
                             if (result.success) {
                                 reply = String.format(MainApp.sResources.getString(R.string.smscommunicator_bolusdelivered), result.bolusDelivered);
                                 if (danaRPlugin != null)
@@ -533,7 +537,7 @@ public class SmsCommunicatorPlugin implements PluginBase {
                         final LoopPlugin activeloop = ConfigBuilderPlugin.getActiveLoop();
                         activeloop.suspendTo(new Date().getTime() + suspendWaitingForConfirmation.duration * 60L * 1000);
                         PumpEnactResult result = MainApp.getConfigBuilder().cancelTempBasal();
-                        ConfigBuilderPlugin.uploadOpenAPSOffline(suspendWaitingForConfirmation.duration * 60);
+                        NSUpload.uploadOpenAPSOffline(suspendWaitingForConfirmation.duration * 60);
                         MainApp.bus().post(new EventRefreshGui(false));
                         reply = MainApp.sResources.getString(R.string.smscommunicator_loopsuspended) + " " +
                                 MainApp.sResources.getString(result.success?R.string.smscommunicator_tempbasalcanceled:R.string.smscommunicator_tempbasalcancelfailed);
