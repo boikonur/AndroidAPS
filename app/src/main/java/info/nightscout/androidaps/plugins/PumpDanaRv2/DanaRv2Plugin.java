@@ -78,25 +78,23 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
         context.bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
         MainApp.bus().register(this);
 
-        pumpDescription.isBolusCapable = true; // TODO: use description in setTempBasalAbsolute
-        pumpDescription.bolusStep = 0.05d;
+        pumpDescription.isBolusCapable = true;
+        pumpDescription.bolusStep = 0.1d;
 
         pumpDescription.isExtendedBolusCapable = true;
         pumpDescription.extendedBolusStep = 0.05d;
+        pumpDescription.extendedBolusDurationStep = 30;
+        pumpDescription.extendedBolusMaxDuration = 8 * 60;
 
         pumpDescription.isTempBasalCapable = true;
-        pumpDescription.lowTempBasalStyle = PumpDescription.PERCENT;
-        pumpDescription.highTempBasalStyle = PumpDescription.PERCENT;
-        pumpDescription.maxHighTempPercent = 500;
-        pumpDescription.maxHighTempAbsolute = 0;
-        pumpDescription.lowTempPercentStep = 10;
-        pumpDescription.lowTempAbsoluteStep = 0;
-        pumpDescription.lowTempPercentDuration = 30;
-        pumpDescription.lowTempAbsoluteDuration = 30;
-        pumpDescription.highTempPercentStep = 10;
-        pumpDescription.highTempAbsoluteStep = 0;
-        pumpDescription.highTempPercentDuration = 15;
-        pumpDescription.highTempAbsoluteDuration = 0;
+        pumpDescription.tempBasalStyle = PumpDescription.PERCENT;
+
+        pumpDescription.maxTempPercent = 200;
+        pumpDescription.tempPercentStep = 10;
+
+        pumpDescription.tempDurationStep = 60;
+        pumpDescription.tempMaxDuration = 24 * 60;
+
 
         pumpDescription.isSetBasalProfileCapable = true;
         pumpDescription.basalStep = 0.01d;
@@ -289,7 +287,7 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
         if (detailedBolusInfo.insulin > 0 || detailedBolusInfo.carbs > 0) {
             Treatment t = new Treatment(detailedBolusInfo.insulinInterface);
             boolean connectionOK = false;
-            if (detailedBolusInfo.insulin > 0 || detailedBolusInfo.carbs > 0) connectionOK = sExecutionService.bolus(detailedBolusInfo.insulin, (int) detailedBolusInfo.carbs, t);
+            if (detailedBolusInfo.insulin > 0 || detailedBolusInfo.carbs > 0) connectionOK = sExecutionService.bolus(detailedBolusInfo.insulin, (int) detailedBolusInfo.carbs, new Date().getTime() + detailedBolusInfo.carbTime * 60 * 1000, t);
             PumpEnactResult result = new PumpEnactResult();
             result.success = connectionOK;
             result.bolusDelivered = t.insulin;
@@ -297,9 +295,6 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
             result.comment = MainApp.instance().getString(R.string.virtualpump_resultok);
             if (Config.logPumpActions)
                 log.debug("deliverTreatment: OK. Asked: " + detailedBolusInfo.insulin + " Delivered: " + result.bolusDelivered);
-            detailedBolusInfo.insulin = t.insulin;
-            detailedBolusInfo.date = new Date().getTime();
-            MainApp.getConfigBuilder().addTreatmentToHistory(detailedBolusInfo);
             return result;
         } else {
             PumpEnactResult result = new PumpEnactResult();
@@ -359,8 +354,8 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
             Integer percentRate = Double.valueOf(absoluteRate / getBaseBasalRate() * 100).intValue();
             if (percentRate < 100) percentRate = Round.ceilTo((double) percentRate, 10d).intValue();
             else percentRate = Round.floorTo((double) percentRate, 10d).intValue();
-            if (percentRate > getPumpDescription().maxHighTempPercent)
-                percentRate = getPumpDescription().maxHighTempPercent;
+            if (percentRate > 500) // Special high temp 500/15min
+                percentRate = 500;
             // Check if some temp is already in progress
             if (MainApp.getConfigBuilder().isTempBasalInProgress()) {
                 // Correct basal already set ?
@@ -389,7 +384,8 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
             // Convert duration from minutes to hours
             if (Config.logPumpActions)
                 log.debug("setTempBasalAbsolute: Setting temp basal " + percentRate + "% for " + durationInMinutes + " mins (doLowTemp || doHighTemp)");
-            return setTempBasalPercent(percentRate, durationInMinutes);
+            // use special APS temp basal call ... 100+/15min .... 100-/30min
+            setHighTempBasalPercent(percentRate);
         }
         // We should never end here
         log.error("setTempBasalAbsolute: Internal error");
@@ -411,8 +407,8 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
             log.error("setTempBasalPercent: Invalid input");
             return result;
         }
-        if (percent > getPumpDescription().maxHighTempPercent)
-            percent = getPumpDescription().maxHighTempPercent;
+        if (percent > getPumpDescription().maxTempPercent)
+            percent = getPumpDescription().maxTempPercent;
         if (pump.isTempBasalInProgress && pump.tempBasalPercent == percent) {
             result.enacted = false;
             result.success = true;
@@ -673,8 +669,8 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
     public Integer applyBasalConstraints(Integer percentRate) {
         Integer origPercentRate = percentRate;
         if (percentRate < 0) percentRate = 0;
-        if (percentRate > getPumpDescription().maxHighTempPercent)
-            percentRate = getPumpDescription().maxHighTempPercent;
+        if (percentRate > getPumpDescription().maxTempPercent)
+            percentRate = getPumpDescription().maxTempPercent;
         if (!Objects.equals(percentRate, origPercentRate) && Config.logConstraintsChanges && !Objects.equals(origPercentRate, Constants.basalPercentOnlyForCheckLimit))
             log.debug("Limiting percent rate " + origPercentRate + "% to " + percentRate + "%");
         return percentRate;

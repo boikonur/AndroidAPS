@@ -219,7 +219,7 @@ public class DanaRKoreanExecutionService extends Service {
                         mSerialIOThread.disconnect("Recreate SerialIOThread");
                     }
                     mSerialIOThread = new SerialIOThread(mRfcommSocket);
-                    MainApp.bus().post(new EventPumpStatusChanged(EventPumpStatusChanged.CONNECTED));
+                    MainApp.bus().post(new EventPumpStatusChanged(EventPumpStatusChanged.CONNECTED, 0));
                     if (!getPumpStatus()) {
                         mSerialIOThread.disconnect("getPumpStatus failed");
                         waitMsec(3000);
@@ -385,7 +385,7 @@ public class DanaRKoreanExecutionService extends Service {
         return true;
     }
 
-    public boolean bolus(Double amount, int carbs, Treatment t) {
+    public boolean bolus(double amount, int carbs, Treatment t) {
         bolusingTreatment = t;
         MsgBolusStart start = new MsgBolusStart(amount);
         MsgBolusStop stop = new MsgBolusStop(amount, t);
@@ -394,8 +394,7 @@ public class DanaRKoreanExecutionService extends Service {
         if (!isConnected()) return false;
 
         if (carbs > 0) {
-            Calendar time = Calendar.getInstance();
-            mSerialIOThread.sendMessage(new MsgSetCarbsEntry(time, carbs));
+            mSerialIOThread.sendMessage(new MsgSetCarbsEntry(new Date().getTime(), carbs));
         }
 
         MsgBolusProgress progress = new MsgBolusProgress(amount, t); // initialize static variables
@@ -440,8 +439,7 @@ public class DanaRKoreanExecutionService extends Service {
     public boolean carbsEntry(int amount) {
         connect("carbsEntry");
         if (!isConnected()) return false;
-        Calendar time = Calendar.getInstance();
-        MsgSetCarbsEntry msg = new MsgSetCarbsEntry(time, amount);
+        MsgSetCarbsEntry msg = new MsgSetCarbsEntry(new Date().getTime(), amount);
         mSerialIOThread.sendMessage(msg);
         return true;
     }
