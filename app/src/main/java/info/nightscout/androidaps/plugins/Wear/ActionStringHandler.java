@@ -16,12 +16,13 @@ import info.nightscout.androidaps.data.DetailedBolusInfo;
 import info.nightscout.androidaps.data.PumpEnactResult;
 import info.nightscout.androidaps.db.BgReading;
 import info.nightscout.androidaps.db.DatabaseHelper;
+import info.nightscout.androidaps.db.Source;
 import info.nightscout.androidaps.db.TempTarget;
 import info.nightscout.androidaps.interfaces.APSInterface;
 import info.nightscout.androidaps.interfaces.PluginBase;
 import info.nightscout.androidaps.plugins.Actions.dialogs.FillDialog;
 import info.nightscout.androidaps.plugins.Loop.LoopPlugin;
-import info.nightscout.androidaps.plugins.NSClientInternal.data.NSProfile;
+import info.nightscout.androidaps.data.Profile;
 import info.nightscout.utils.BolusWizard;
 import info.nightscout.utils.DateUtil;
 import info.nightscout.utils.DecimalFormatter;
@@ -110,7 +111,7 @@ public class ActionStringHandler {
             ///////////////////////////////////////////////////////// TEMPTARGET
             boolean isMGDL = Boolean.parseBoolean(act[1]);
 
-            NSProfile profile = MainApp.getConfigBuilder().getActiveProfile().getProfile();
+            Profile profile = MainApp.getConfigBuilder().getProfile();
             if (profile == null) {
                 sendError("No profile found!");
                 return;
@@ -174,7 +175,7 @@ public class ActionStringHandler {
             boolean useBolusIOB = Boolean.parseBoolean(act[3]);
             boolean useBasalIOB = Boolean.parseBoolean(act[4]);
 
-            NSProfile profile = MainApp.getConfigBuilder().getActiveProfile().getProfile();
+            Profile profile = MainApp.getConfigBuilder().getProfile();
             if (profile == null) {
                 sendError("No profile found!");
                 return;
@@ -187,7 +188,7 @@ public class ActionStringHandler {
             }
             DecimalFormat format = new DecimalFormat("0.00");
             BolusWizard bolusWizard = new BolusWizard();
-            bolusWizard.doCalc(profile.getDefaultProfile(), carbsAfterConstraints, 0d, useBG ? bgReading.valueToUnits(profile.getUnits()) : 0d, 0d, useBolusIOB, useBasalIOB, false, false);
+            bolusWizard.doCalc(profile, carbsAfterConstraints, 0d, useBG ? bgReading.valueToUnits(profile.getUnits()) : 0d, 0d, useBolusIOB, useBasalIOB, false, false);
 
             Double insulinAfterConstraints = MainApp.getConfigBuilder().applyBolusConstraints(bolusWizard.calculatedTotalInsulin);
             if (insulinAfterConstraints - bolusWizard.calculatedTotalInsulin != 0) {
@@ -197,7 +198,6 @@ public class ActionStringHandler {
             }
 
 
-            double insulin = bolusWizard.calculatedTotalInsulin;
             if (bolusWizard.calculatedTotalInsulin < 0) {
                 bolusWizard.calculatedTotalInsulin = 0d;
             }
@@ -270,7 +270,7 @@ public class ActionStringHandler {
         if (!Config.APS) {
             return "Targets only apply in APS mode!";
         }
-        NSProfile profile = MainApp.getConfigBuilder().getActiveProfile().getProfile();
+        Profile profile = MainApp.getConfigBuilder().getProfile();
         if (profile == null) {
             return "No profile set :(";
         }
@@ -278,7 +278,7 @@ public class ActionStringHandler {
         //Check for Temp-Target:
         TempTarget tempTarget = MainApp.getConfigBuilder().getTempTargetFromHistory(new Date().getTime());
         if (tempTarget != null) {
-            ret += "Temp Target: " + NSProfile.toUnitsString(tempTarget.low, NSProfile.fromMgdlToUnits(tempTarget.low, profile.getUnits()), profile.getUnits()) + " - " + NSProfile.toUnitsString(tempTarget.high, NSProfile.fromMgdlToUnits(tempTarget.high, profile.getUnits()), profile.getUnits());
+            ret += "Temp Target: " + Profile.toUnitsString(tempTarget.low, Profile.fromMgdlToUnits(tempTarget.low, profile.getUnits()), profile.getUnits()) + " - " + Profile.toUnitsString(tempTarget.high, Profile.fromMgdlToUnits(tempTarget.high, profile.getUnits()), profile.getUnits());
             ret += "\nuntil: " + DateUtil.timeString(tempTarget.originalEnd());
             ret += "\n\n";
         }
@@ -350,6 +350,7 @@ public class ActionStringHandler {
         tempTarget.date = new Date().getTime();
         tempTarget.durationInMinutes = duration;
         tempTarget.reason = "WearPlugin";
+        tempTarget.source = Source.USER;
         if (tempTarget.durationInMinutes != 0) {
             tempTarget.low = low;
             tempTarget.high = high;
@@ -391,6 +392,7 @@ public class ActionStringHandler {
                 DetailedBolusInfo detailedBolusInfo = new DetailedBolusInfo();
                 detailedBolusInfo.insulin = amount;
                 detailedBolusInfo.carbs = carbs;
+                detailedBolusInfo.source = Source.USER;
                 PumpEnactResult result = MainApp.getConfigBuilder().deliverTreatment(detailedBolusInfo);
                 if (!result.success) {
                     sendError(MainApp.sResources.getString(R.string.treatmentdeliveryerror) +

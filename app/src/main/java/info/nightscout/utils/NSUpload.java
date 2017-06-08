@@ -19,13 +19,14 @@ import info.nightscout.androidaps.Services.Intents;
 import info.nightscout.androidaps.data.DetailedBolusInfo;
 import info.nightscout.androidaps.db.CareportalEvent;
 import info.nightscout.androidaps.db.ExtendedBolus;
+import info.nightscout.androidaps.db.ProfileSwitch;
 import info.nightscout.androidaps.db.TemporaryBasal;
 import info.nightscout.androidaps.db.Treatment;
 import info.nightscout.androidaps.plugins.Loop.APSResult;
 import info.nightscout.androidaps.plugins.Loop.DeviceStatus;
 import info.nightscout.androidaps.plugins.Loop.LoopPlugin;
 import info.nightscout.androidaps.plugins.NSClientInternal.data.DbLogger;
-import info.nightscout.androidaps.plugins.NSClientInternal.data.NSProfile;
+import info.nightscout.androidaps.data.Profile;
 import info.nightscout.androidaps.plugins.OpenAPSAMA.DetermineBasalResultAMA;
 import info.nightscout.androidaps.plugins.OpenAPSMA.DetermineBasalResultMA;
 
@@ -43,6 +44,8 @@ public class NSUpload {
             data.put("eventType", CareportalEvent.TEMPBASAL);
             data.put("duration", temporaryBasal.durationInMinutes);
             data.put("absolute", temporaryBasal.absoluteRate);
+            if (temporaryBasal.pumpId != 0)
+                data.put("pumpId", temporaryBasal.pumpId);
             data.put("created_at", DateUtil.toISOString(temporaryBasal.date));
             data.put("enteredBy", MainApp.instance().getString(R.string.app_name));
             data.put("notes", MainApp.sResources.getString(R.string.androidaps_tempbasalstartnote) + " " + temporaryBasal.absoluteRate + "u/h " + temporaryBasal.durationInMinutes + " min"); // ECOR
@@ -69,9 +72,9 @@ public class NSUpload {
             if (useAbsolute) {
                 TemporaryBasal t = temporaryBasal.clone();
                 t.isAbsolute = true;
-                NSProfile profile = MainApp.getConfigBuilder().getActiveProfile().getProfile();
+                Profile profile = MainApp.getConfigBuilder().getProfile();
                 if (profile != null) {
-                    t.absoluteRate = profile.getBasal(NSProfile.secondsFromMidnight(temporaryBasal.date)) * temporaryBasal.percentRate / 100d;
+                    t.absoluteRate = profile.getBasal(temporaryBasal.date) * temporaryBasal.percentRate / 100d;
                     uploadTempBasalStartAbsolute(t, null);
                 }
             } else {
@@ -80,6 +83,8 @@ public class NSUpload {
                 data.put("eventType", CareportalEvent.TEMPBASAL);
                 data.put("duration", temporaryBasal.durationInMinutes);
                 data.put("percent", temporaryBasal.percentRate - 100);
+                if (temporaryBasal.pumpId != 0)
+                    data.put("pumpId", temporaryBasal.pumpId);
                 data.put("created_at", DateUtil.toISOString(temporaryBasal.date));
                 data.put("enteredBy", MainApp.instance().getString(R.string.app_name));
                 data.put("notes", MainApp.sResources.getString(R.string.androidaps_tempbasalstartnote) + " " + temporaryBasal.percentRate + "% " + temporaryBasal.durationInMinutes + " min"); // ECOR
@@ -98,7 +103,7 @@ public class NSUpload {
         }
     }
 
-    public static void uploadTempBasalEnd(long time, boolean isFakedTempBasal) {
+    public static void uploadTempBasalEnd(long time, boolean isFakedTempBasal, long pumpId) {
         try {
             Context context = MainApp.instance().getApplicationContext();
             JSONObject data = new JSONObject();
@@ -108,6 +113,8 @@ public class NSUpload {
             data.put("notes", MainApp.sResources.getString(R.string.androidaps_tempbasalendnote)); // ECOR
             if (isFakedTempBasal)
                 data.put("isFakedTempBasal", isFakedTempBasal);
+            if (pumpId != 0)
+                data.put("pumpId", pumpId);
             Bundle bundle = new Bundle();
             bundle.putString("action", "dbAdd");
             bundle.putString("collection", "treatments");
@@ -132,6 +139,8 @@ public class NSUpload {
             data.put("splitExt", 100);
             data.put("enteredinsulin", extendedBolus.insulin);
             data.put("relative", extendedBolus.insulin);
+            if (extendedBolus.pumpId != 0)
+                data.put("pumpId", extendedBolus.pumpId);
             data.put("created_at", DateUtil.toISOString(extendedBolus.date));
             data.put("enteredBy", MainApp.instance().getString(R.string.app_name));
             Bundle bundle = new Bundle();
@@ -148,7 +157,7 @@ public class NSUpload {
         }
     }
 
-    public static void uploadExtendedBolusEnd(long time) {
+    public static void uploadExtendedBolusEnd(long time, long pumpId) {
         try {
             Context context = MainApp.instance().getApplicationContext();
             JSONObject data = new JSONObject();
@@ -160,6 +169,8 @@ public class NSUpload {
             data.put("relative", 0);
             data.put("created_at", DateUtil.toISOString(time));
             data.put("enteredBy", MainApp.instance().getString(R.string.app_name));
+            if (pumpId != 0)
+                data.put("pumpId", pumpId);
             Bundle bundle = new Bundle();
             bundle.putString("action", "dbAdd");
             bundle.putString("collection", "treatments");
@@ -172,23 +183,6 @@ public class NSUpload {
         } catch (JSONException e) {
             e.printStackTrace();
         }
-    }
-
-    public static void uploadTreatment(Treatment treatment) {
-        JSONObject data = new JSONObject();
-        try {
-            if (treatment.mealBolus)
-                data.put("eventType", "Meal Bolus");
-            else
-                data.put("eventType", "Correction Bolus");
-            if (treatment.insulin != 0d) data.put("insulin", treatment.insulin);
-            if (treatment.carbs != 0d) data.put("carbs", treatment.carbs.intValue());
-            data.put("created_at", DateUtil.toISOString(treatment.date));
-            data.put("timeIndex", treatment.date);
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        NSUpload.uploadCareportalEntryToNS(data);
     }
 
     public static void uploadDeviceStatus() {
@@ -260,6 +254,8 @@ public class NSUpload {
             if (detailedBolusInfo.carbs != 0d) data.put("carbs", (int) detailedBolusInfo.carbs);
             data.put("created_at", DateUtil.toISOString(detailedBolusInfo.date));
             data.put("date", detailedBolusInfo.date);
+            if (detailedBolusInfo.pumpId != 0)
+                data.put("pumpId", detailedBolusInfo.pumpId);
             if (detailedBolusInfo.glucose != 0d)
                 data.put("glucose", detailedBolusInfo.glucose);
             if (!detailedBolusInfo.glucoseType.equals(""))
@@ -272,6 +268,27 @@ public class NSUpload {
             e.printStackTrace();
         }
         uploadCareportalEntryToNS(data);
+    }
+
+    public static void uploadProfileSwitch(ProfileSwitch profileSwitch) {
+        try {
+            JSONObject data = new JSONObject();
+            data.put("eventType", CareportalEvent.PROFILESWITCH);
+            data.put("duration", profileSwitch.durationInMinutes);
+            data.put("profile", profileSwitch.profileName);
+            data.put("profileJson", profileSwitch.profileJson);
+            data.put("profilePlugin", profileSwitch.profilePlugin);
+            if (profileSwitch.isCPP) {
+                data.put("CircadianPercentageProfile", true);
+                data.put("timeshift", profileSwitch.timeshift);
+                data.put("percentage", profileSwitch.percentage);
+            }
+            data.put("created_at", DateUtil.toISOString(profileSwitch.date));
+            data.put("enteredBy", MainApp.instance().getString(R.string.app_name));
+            uploadCareportalEntryToNS(data);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
     }
 
     public static void uploadCareportalEntryToNS(JSONObject data) {

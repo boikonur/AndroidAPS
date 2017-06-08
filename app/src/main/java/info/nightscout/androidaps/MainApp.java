@@ -49,6 +49,7 @@ import info.nightscout.androidaps.plugins.PumpDanaRv2.DanaRv2Fragment;
 import info.nightscout.androidaps.plugins.PumpDanaRv2.services.DanaRv2ExecutionService;
 import info.nightscout.androidaps.plugins.PumpMDI.MDIFragment;
 import info.nightscout.androidaps.plugins.PumpVirtual.VirtualPumpFragment;
+import info.nightscout.androidaps.plugins.PumpVirtual.VirtualPumpPlugin;
 import info.nightscout.androidaps.plugins.SmsCommunicator.SmsCommunicatorFragment;
 import info.nightscout.androidaps.plugins.SourceGlimp.SourceGlimpFragment;
 import info.nightscout.androidaps.plugins.SourceMM640g.SourceMM640gFragment;
@@ -104,7 +105,7 @@ public class MainApp extends Application {
             if (Config.COMBO) pluginsList.add(ComboFragment.getPlugin());
             pluginsList.add(CareportalFragment.getPlugin());
             if (Config.MDI) pluginsList.add(MDIFragment.getPlugin());
-            if (Config.VIRTUALPUMP) pluginsList.add(VirtualPumpFragment.getPlugin());
+            if (Config.VIRTUALPUMP) pluginsList.add(VirtualPumpPlugin.getInstance());
             if (Config.LOOPENABLED) pluginsList.add(LoopFragment.getPlugin());
             if (Config.OPENAPSENABLED) pluginsList.add(OpenAPSMAFragment.getPlugin());
             if (Config.OPENAPSENABLED) pluginsList.add(OpenAPSAMAFragment.getPlugin());
@@ -116,10 +117,13 @@ public class MainApp extends Application {
             pluginsList.add(TreatmentsFragment.getPlugin());
             if (Config.SAFETY) pluginsList.add(SafetyFragment.getPlugin());
             if (Config.APS) pluginsList.add(ObjectivesFragment.getPlugin());
-            pluginsList.add(SourceXdripFragment.getPlugin());
+            if (!Config.NSCLIENT)
+                pluginsList.add(SourceXdripFragment.getPlugin());
             pluginsList.add(SourceNSClientFragment.getPlugin());
-            pluginsList.add(SourceMM640gFragment.getPlugin());
-            pluginsList.add(SourceGlimpFragment.getPlugin());
+            if (!Config.NSCLIENT)
+                pluginsList.add(SourceMM640gFragment.getPlugin());
+            if (!Config.NSCLIENT)
+                pluginsList.add(SourceGlimpFragment.getPlugin());
             if (Config.SMSCOMMUNICATORENABLED) pluginsList.add(SmsCommunicatorFragment.getPlugin());
 
             if (Config.WEAR) pluginsList.add(WearFragment.getPlugin(this));

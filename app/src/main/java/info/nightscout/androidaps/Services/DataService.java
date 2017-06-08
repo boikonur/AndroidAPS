@@ -2,9 +2,7 @@ package info.nightscout.androidaps.Services;
 
 import android.app.IntentService;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.os.Bundle;
-import android.preference.PreferenceManager;
 import android.provider.Telephony;
 
 import org.json.JSONArray;
@@ -22,19 +20,17 @@ import info.nightscout.androidaps.R;
 import info.nightscout.androidaps.db.BgReading;
 import info.nightscout.androidaps.db.CareportalEvent;
 import info.nightscout.androidaps.events.EventNewBasalProfile;
-import info.nightscout.androidaps.interfaces.PluginBase;
-import info.nightscout.androidaps.interfaces.PumpInterface;
 import info.nightscout.androidaps.plugins.ConfigBuilder.ConfigBuilderPlugin;
 import info.nightscout.androidaps.plugins.ConstraintsObjectives.ObjectivesPlugin;
-import info.nightscout.androidaps.plugins.NSClientInternal.data.NSProfile;
+import info.nightscout.androidaps.plugins.NSClientInternal.data.NSMbg;
 import info.nightscout.androidaps.plugins.NSClientInternal.data.NSSgv;
+import info.nightscout.androidaps.data.ProfileStore;
 import info.nightscout.androidaps.plugins.Overview.Notification;
 import info.nightscout.androidaps.plugins.Overview.OverviewPlugin;
 import info.nightscout.androidaps.plugins.Overview.events.EventDismissNotification;
 import info.nightscout.androidaps.plugins.Overview.events.EventNewNotification;
 import info.nightscout.androidaps.plugins.ProfileNS.NSProfilePlugin;
 import info.nightscout.androidaps.plugins.PumpDanaR.History.DanaRNSHistorySync;
-import info.nightscout.androidaps.plugins.SmsCommunicator.SmsCommunicatorPlugin;
 import info.nightscout.androidaps.plugins.SmsCommunicator.events.EventNewSMS;
 import info.nightscout.androidaps.plugins.SourceGlimp.SourceGlimpPlugin;
 import info.nightscout.androidaps.plugins.SourceMM640g.SourceMM640gPlugin;
@@ -84,7 +80,7 @@ public class DataService extends IntentService {
             glimpEnabled = true;
         }
 
-        boolean isNSProfile = ConfigBuilderPlugin.getActiveProfile().getClass().equals(NSProfilePlugin.class);
+        boolean isNSProfile = ConfigBuilderPlugin.getActiveProfileInterface().getClass().equals(NSProfilePlugin.class);
 
         boolean nsUploadOnly = SP.getBoolean(R.string.key_ns_upload_only, false);
 
@@ -170,16 +166,7 @@ public class DataService extends IntentService {
         bgReading.date = bundle.getLong(Intents.EXTRA_TIMESTAMP);
         bgReading.raw = bundle.getDouble(Intents.EXTRA_RAW);
 
-        if (bgReading.date < new Date().getTime() - Constants.hoursToKeepInDatabase * 60 * 60 * 1000L) {
-            if (Config.logIncommingBG)
-                log.debug("Ignoring old XDRIPREC BG " + bgReading.toString());
-            return;
-        }
-
-        if (Config.logIncommingBG)
-            log.debug("XDRIPREC BG " + bgReading.toString());
-
-        MainApp.getDbHelper().createIfNotExists(bgReading);
+        MainApp.getDbHelper().createIfNotExists(bgReading, "XDRIP");
     }
 
     private void handleNewDataFromGlimp(Intent intent) {
@@ -193,11 +180,7 @@ public class DataService extends IntentService {
         bgReading.date = bundle.getLong("myTimestamp");
         bgReading.raw = 0;
 
-        if (Config.logIncommingBG)
-            log.debug(bundle.toString());
-            log.debug("GLIMP BG " + bgReading.toString());
-
-        MainApp.getDbHelper().createIfNotExists(bgReading);
+        MainApp.getDbHelper().createIfNotExists(bgReading, "GLIMP");
     }
 
     private void handleNewDataFromMM640g(Intent intent) {
@@ -225,16 +208,7 @@ public class DataService extends IntentService {
                                 bgReading.date = json_object.getLong("date");
                                 bgReading.raw = json_object.getDouble("sgv");
 
-                                if (bgReading.date < new Date().getTime() - Constants.hoursToKeepInDatabase * 60 * 60 * 1000L) {
-                                    if (Config.logIncommingBG)
-                                        log.debug("Ignoring old MM640g BG " + bgReading.toString());
-                                    return;
-                                }
-
-                                if (Config.logIncommingBG)
-                                    log.debug("MM640g BG " + bgReading.toString());
-
-                                MainApp.getDbHelper().createIfNotExists(bgReading);
+                                MainApp.getDbHelper().createIfNotExists(bgReading, "MM640g");
                                 break;
                             default:
                                 log.debug("Unknown entries type: " + type);
@@ -325,25 +299,12 @@ public class DataService extends IntentService {
             try {
                 String activeProfile = bundles.getString("activeprofile");
                 String profile = bundles.getString("profile");
-                NSProfile nsProfile = new NSProfile(new JSONObject(profile), activeProfile);
-                MainApp.bus().post(new EventNewBasalProfile(nsProfile, "NSClient"));
+                ProfileStore profileStore = new ProfileStore(new JSONObject(profile));
+                NSProfilePlugin.storeNewProfile(profileStore);
+                MainApp.bus().post(new EventNewBasalProfile());
 
-                PumpInterface pump = MainApp.getConfigBuilder();
-                if (pump != null) {
-                    SharedPreferences SP = PreferenceManager.getDefaultSharedPreferences(getApplicationContext());
-                    if (SP.getBoolean("syncprofiletopump", false)) {
-                        if (pump.setNewBasalProfile(nsProfile) == PumpInterface.SUCCESS) {
-                            SmsCommunicatorPlugin smsCommunicatorPlugin = (SmsCommunicatorPlugin) MainApp.getSpecificPlugin(SmsCommunicatorPlugin.class);
-                            if (smsCommunicatorPlugin != null && smsCommunicatorPlugin.isEnabled(PluginBase.GENERAL)) {
-                                smsCommunicatorPlugin.sendNotificationToAllNumbers(MainApp.sResources.getString(R.string.profile_set_ok));
-                            }
-                        }
-                    }
-                } else {
-                    log.error("No active pump selected");
-                }
                 if (Config.logIncommingData)
-                    log.debug("Received profile: " + activeProfile + " " + profile);
+                    log.debug("Received profileStore: " + activeProfile + " " + profile);
             } catch (JSONException e) {
                 e.printStackTrace();
             }
@@ -419,14 +380,7 @@ public class DataService extends IntentService {
                     JSONObject sgvJson = new JSONObject(sgvstring);
                     NSSgv nsSgv = new NSSgv(sgvJson);
                     BgReading bgReading = new BgReading(nsSgv);
-                    if (bgReading.date < new Date().getTime() - Constants.hoursToKeepInDatabase * 60 * 60 * 1000l) {
-                        if (Config.logIncommingData)
-                            log.debug("Ignoring old BG: " + bgReading.toString());
-                        return;
-                    }
-                    MainApp.getDbHelper().createIfNotExists(bgReading);
-                    if (Config.logIncommingData)
-                        log.debug("ADD: Stored new BG: " + bgReading.toString());
+                    MainApp.getDbHelper().createIfNotExists(bgReading, "NS");
                 }
 
                 if (bundles.containsKey("sgvs")) {
@@ -436,14 +390,7 @@ public class DataService extends IntentService {
                         JSONObject sgvJson = jsonArray.getJSONObject(i);
                         NSSgv nsSgv = new NSSgv(sgvJson);
                         BgReading bgReading = new BgReading(nsSgv);
-                        if (bgReading.date < new Date().getTime() - Constants.hoursToKeepInDatabase * 60 * 60 * 1000l) {
-                            if (Config.logIncommingData)
-                                log.debug("Ignoring old BG: " + bgReading.toString());
-                        } else {
-                            MainApp.getDbHelper().createIfNotExists(bgReading);
-                            if (Config.logIncommingData)
-                                log.debug("ADD: Stored new BG: " + bgReading.toString());
-                        }
+                        MainApp.getDbHelper().createIfNotExists(bgReading, "NS");
                     }
                 }
             } catch (Exception e) {
@@ -452,7 +399,32 @@ public class DataService extends IntentService {
         }
 
         if (intent.getAction().equals(Intents.ACTION_NEW_MBG)) {
-            log.error("Not implemented yet"); // TODO implemeng MBGS
+            try {
+                if (bundles.containsKey("mbg")) {
+                    String mbgstring = bundles.getString("mbg");
+                    JSONObject mbgJson = new JSONObject(mbgstring);
+                    NSMbg nsMbg = new NSMbg(mbgJson);
+                    CareportalEvent careportalEvent = new CareportalEvent(nsMbg);
+                    MainApp.getDbHelper().createOrUpdate(careportalEvent);
+                    if (Config.logIncommingData)
+                        log.debug("Adding/Updating new MBG: " + careportalEvent.log());
+                }
+
+                if (bundles.containsKey("mbgs")) {
+                    String sgvstring = bundles.getString("mbgs");
+                    JSONArray jsonArray = new JSONArray(sgvstring);
+                    for (int i = 0; i < jsonArray.length(); i++) {
+                        JSONObject mbgJson = jsonArray.getJSONObject(i);
+                        NSMbg nsMbg = new NSMbg(mbgJson);
+                        CareportalEvent careportalEvent = new CareportalEvent(nsMbg);
+                        MainApp.getDbHelper().createOrUpdate(careportalEvent);
+                        if (Config.logIncommingData)
+                            log.debug("Adding/Updating new MBG: " + careportalEvent.log());
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
     }
 
@@ -462,6 +434,7 @@ public class DataService extends IntentService {
         MainApp.getDbHelper().deleteTempBasalById(_id);
         MainApp.getDbHelper().deleteExtendedBolusById(_id);
         MainApp.getDbHelper().deleteCareportalEventById(_id);
+        MainApp.getDbHelper().deleteProfileSwitchById(_id);
     }
 
     private void handleAddChangeDataFromNS(String trstring) throws JSONException {
@@ -472,6 +445,7 @@ public class DataService extends IntentService {
         handleAddChangeExtendedBolusRecord(trJson);
         handleAddChangeCareportalEventRecord(trJson);
         handleAddChangeTreatmentRecord(trJson);
+        handleAddChangeProfileSwitchRecord(trJson);
     }
 
     public void handleDanaRHistoryRecords(JSONObject trJson) {
@@ -482,8 +456,6 @@ public class DataService extends IntentService {
 
     public void handleAddChangeTreatmentRecord(JSONObject trJson) throws JSONException {
         if (trJson.has("insulin") || trJson.has("carbs")) {
-            if (Config.logIncommingData)
-                log.debug("Processing Treatment record: " + trJson.toString());
             MainApp.getDbHelper().createTreatmentFromJsonIfNotExists(trJson);
             return;
         }
@@ -491,37 +463,56 @@ public class DataService extends IntentService {
 
     public void handleAddChangeTempTargetRecord(JSONObject trJson) throws JSONException {
         if (trJson.has("eventType") && trJson.getString("eventType").equals(CareportalEvent.TEMPORARYTARGET)) {
-            if (Config.logIncommingData)
-                log.debug("Processing TempTarget record: " + trJson.toString());
             MainApp.getDbHelper().createTemptargetFromJsonIfNotExists(trJson);
         }
     }
 
     public void handleAddChangeTempBasalRecord(JSONObject trJson) throws JSONException {
         if (trJson.has("eventType") && trJson.getString("eventType").equals(CareportalEvent.TEMPBASAL)) {
-            if (Config.logIncommingData)
-                log.debug("Processing TempBasal record: " + trJson.toString());
             MainApp.getDbHelper().createTempBasalFromJsonIfNotExists(trJson);
         }
     }
 
     public void handleAddChangeExtendedBolusRecord(JSONObject trJson) throws JSONException {
         if (trJson.has("eventType") && trJson.getString("eventType").equals(CareportalEvent.COMBOBOLUS)) {
-            if (Config.logIncommingData)
-                log.debug("Processing Extended Bolus record: " + trJson.toString());
             MainApp.getDbHelper().createExtendedBolusFromJsonIfNotExists(trJson);
         }
     }
 
     public void handleAddChangeCareportalEventRecord(JSONObject trJson) throws JSONException {
+        if (trJson.has("insulin") && trJson.getDouble("insulin") > 0)
+            return;
+        if (trJson.has("carbs") && trJson.getDouble("carbs") > 0)
+            return;
         if (trJson.has("eventType") && (
                 trJson.getString("eventType").equals(CareportalEvent.SITECHANGE) ||
-                trJson.getString("eventType").equals(CareportalEvent.INSULINCHANGE) ||
-                trJson.getString("eventType").equals(CareportalEvent.SENSORCHANGE)
+                        trJson.getString("eventType").equals(CareportalEvent.INSULINCHANGE) ||
+                        trJson.getString("eventType").equals(CareportalEvent.SENSORCHANGE) ||
+                        trJson.getString("eventType").equals(CareportalEvent.BGCHECK) ||
+                        trJson.getString("eventType").equals(CareportalEvent.NOTE) ||
+                        trJson.getString("eventType").equals(CareportalEvent.NONE) ||
+                        trJson.getString("eventType").equals(CareportalEvent.ANNOUNCEMENT) ||
+                        trJson.getString("eventType").equals(CareportalEvent.QUESTION) ||
+                        trJson.getString("eventType").equals(CareportalEvent.EXERCISE) ||
+                        trJson.getString("eventType").equals(CareportalEvent.OPENAPSOFFLINE) ||
+                        trJson.getString("eventType").equals(CareportalEvent.PUMPBATTERYCHANGE)
         )) {
-            if (Config.logIncommingData)
-                log.debug("Processing CareportalEvent record: " + trJson.toString());
             MainApp.getDbHelper().createCareportalEventFromJsonIfNotExists(trJson);
+        }
+
+        if (trJson.getString("eventType").equals(CareportalEvent.ANNOUNCEMENT)) {
+            long date = trJson.getLong("mills");
+            long now = new Date().getTime();
+            if (date > now - 15 * 60 * 1000L && trJson.has("notes")) {
+                Notification announcement = new Notification(Notification.ANNOUNCEMENT, trJson.getString("notes"), Notification.URGENT);
+                MainApp.bus().post(new EventNewNotification(announcement));
+            }
+        }
+    }
+
+    public void handleAddChangeProfileSwitchRecord(JSONObject trJson) throws JSONException {
+        if (trJson.has("eventType") && trJson.getString("eventType").equals(CareportalEvent.PROFILESWITCH)) {
+            MainApp.getDbHelper().createProfileSwitchFromJsonIfNotExists(trJson);
         }
     }
 

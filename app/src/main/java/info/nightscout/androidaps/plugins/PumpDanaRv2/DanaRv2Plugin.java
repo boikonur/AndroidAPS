@@ -31,13 +31,13 @@ import info.nightscout.androidaps.db.TemporaryBasal;
 import info.nightscout.androidaps.db.Treatment;
 import info.nightscout.androidaps.events.EventAppExit;
 import info.nightscout.androidaps.interfaces.ConstraintsInterface;
-import info.nightscout.androidaps.interfaces.InsulinInterface;
 import info.nightscout.androidaps.interfaces.PluginBase;
 import info.nightscout.androidaps.interfaces.ProfileInterface;
 import info.nightscout.androidaps.interfaces.PumpDescription;
 import info.nightscout.androidaps.interfaces.PumpInterface;
 import info.nightscout.androidaps.plugins.ConfigBuilder.ConfigBuilderPlugin;
-import info.nightscout.androidaps.plugins.NSClientInternal.data.NSProfile;
+import info.nightscout.androidaps.data.Profile;
+import info.nightscout.androidaps.data.ProfileStore;
 import info.nightscout.androidaps.plugins.Overview.Notification;
 import info.nightscout.androidaps.plugins.Overview.events.EventDismissNotification;
 import info.nightscout.androidaps.plugins.Overview.events.EventNewNotification;
@@ -219,7 +219,7 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
 
     // Pump interface
     @Override
-    public int setNewBasalProfile(NSProfile profile) {
+    public int setNewBasalProfile(Profile profile) {
         if (sExecutionService == null) {
             log.error("setNewBasalProfile sExecutionService is null");
             return FAILED;
@@ -244,7 +244,7 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
     }
 
     @Override
-    public boolean isThisProfileSet(NSProfile profile) {
+    public boolean isThisProfileSet(Profile profile) {
         if (!isInitialized())
             return true; // TODO: not sure what's better. so far TRUE to prevent too many SMS
         if (pump.pumpProfiles == null)
@@ -287,7 +287,8 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
         if (detailedBolusInfo.insulin > 0 || detailedBolusInfo.carbs > 0) {
             Treatment t = new Treatment(detailedBolusInfo.insulinInterface);
             boolean connectionOK = false;
-            if (detailedBolusInfo.insulin > 0 || detailedBolusInfo.carbs > 0) connectionOK = sExecutionService.bolus(detailedBolusInfo.insulin, (int) detailedBolusInfo.carbs, new Date().getTime() + detailedBolusInfo.carbTime * 60 * 1000, t);
+            if (detailedBolusInfo.insulin > 0 || detailedBolusInfo.carbs > 0)
+                connectionOK = sExecutionService.bolus(detailedBolusInfo.insulin, (int) detailedBolusInfo.carbs, new Date().getTime() + detailedBolusInfo.carbTime * 60 * 1000 + 1000, t); // +1000 to make the record different
             PumpEnactResult result = new PumpEnactResult();
             result.success = connectionOK;
             result.bolusDelivered = t.insulin;
@@ -370,22 +371,19 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
                     if (Config.logPumpActions)
                         log.debug("setTempBasalAbsolute: Correct temp basal already set (doLowTemp || doHighTemp)");
                     return result;
-                } else {
-                    if (Config.logPumpActions)
-                        log.debug("setTempBasalAbsolute: Stopping temp basal (doLowTemp || doHighTemp)");
-                    result = cancelTempBasal();
-                    // Check for proper result
-                    if (!result.success) {
-                        log.error("setTempBasalAbsolute: Failed to stop previous temp basal (doLowTemp || doHighTemp)");
-                        return result;
-                    }
-                }
-            }
+                }            }
             // Convert duration from minutes to hours
             if (Config.logPumpActions)
                 log.debug("setTempBasalAbsolute: Setting temp basal " + percentRate + "% for " + durationInMinutes + " mins (doLowTemp || doHighTemp)");
             // use special APS temp basal call ... 100+/15min .... 100-/30min
-            setHighTempBasalPercent(percentRate);
+            result = setHighTempBasalPercent(percentRate);
+            if (!result.success) {
+                log.error("setTempBasalAbsolute: Failed to set hightemp basal");
+                return result;
+            }
+            if (Config.logPumpActions)
+                log.debug("setTempBasalAbsolute: hightemp basal set ok");
+            return result;
         }
         // We should never end here
         log.error("setTempBasalAbsolute: Internal error");
@@ -437,7 +435,7 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
         }
         result.enacted = false;
         result.success = false;
-        result.comment = MainApp.instance().getString(R.string.danar_valuenotsetproperly);
+        result.comment = MainApp.instance().getString(R.string.tempbasaldeliveryerror);
         log.error("setTempBasalPercent: Failed to set temp basal");
         return result;
     }
@@ -601,7 +599,7 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
             }
             extended.put("BaseBasalRate", getBaseBasalRate());
             try {
-                extended.put("ActiveProfile", MainApp.getConfigBuilder().getActiveProfile().getProfile().getActiveProfile());
+                extended.put("ActiveProfile", MainApp.getConfigBuilder().getProfileName());
             } catch (Exception e) {
             }
 
@@ -702,10 +700,15 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
 
     @Nullable
     @Override
-    public NSProfile getProfile() {
+    public ProfileStore getProfile() {
         if (pump.lastSettingsRead.getTime() == 0)
             return null; // no info now
         return pump.createConvertedProfile();
+    }
+
+    @Override
+    public String getProfileName() {
+        return pump.createConvertedProfileName();
     }
 
     // Reply for sms communicator
@@ -720,7 +723,7 @@ public class DanaRv2Plugin implements PluginBase, PumpInterface, ConstraintsInte
             ret += "LastBolus: " + DecimalFormatter.to2Decimal(pump.lastBolusAmount) + "U @" + android.text.format.DateFormat.format("HH:mm", pump.lastBolusTime) + "\n";
         }
         if (MainApp.getConfigBuilder().isTempBasalInProgress()) {
-            ret += "Temp: " + MainApp.getConfigBuilder().getTempBasalFromHistory(new Date().getTime()).toString() + "\n";
+            ret += "Temp: " + MainApp.getConfigBuilder().getTempBasalFromHistory(new Date().getTime()).toStringFull() + "\n";
         }
         if (MainApp.getConfigBuilder().isInHistoryExtendedBoluslInProgress()) {
             ret += "Extended: " + MainApp.getConfigBuilder().getExtendedBolusFromHistory(new Date().getTime()).toString() + "\n";

@@ -31,9 +31,11 @@ import java.util.concurrent.TimeUnit;
 import info.nightscout.androidaps.Config;
 import info.nightscout.androidaps.Constants;
 import info.nightscout.androidaps.MainApp;
+import info.nightscout.androidaps.data.Profile;
 import info.nightscout.androidaps.events.EventCareportalEventChange;
 import info.nightscout.androidaps.events.EventExtendedBolusChange;
 import info.nightscout.androidaps.events.EventNewBG;
+import info.nightscout.androidaps.events.EventProfileSwitchChange;
 import info.nightscout.androidaps.events.EventRefreshGui;
 import info.nightscout.androidaps.events.EventReloadTempBasalData;
 import info.nightscout.androidaps.events.EventReloadTreatmentData;
@@ -41,7 +43,6 @@ import info.nightscout.androidaps.events.EventTempBasalChange;
 import info.nightscout.androidaps.events.EventTempTargetChange;
 import info.nightscout.androidaps.events.EventTreatmentChange;
 import info.nightscout.androidaps.plugins.IobCobCalculator.events.EventNewHistoryData;
-import info.nightscout.androidaps.plugins.NSClientInternal.data.NSProfile;
 import info.nightscout.androidaps.plugins.PumpDanaR.History.DanaRNSHistorySync;
 
 public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
@@ -56,10 +57,11 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
     public static final String DATABASE_DANARHISTORY = "DanaRHistory";
     public static final String DATABASE_DBREQUESTS = "DBRequests";
     public static final String DATABASE_CAREPORTALEVENTS = "CareportalEvents";
+    public static final String DATABASE_PROFILESWITCHES = "ProfileSwitches";
 
     private static final int DATABASE_VERSION = 7;
 
-    private static Long latestTreatmentChange = null;
+    private static Long earliestDataChange = null;
 
     private static final ScheduledExecutorService bgWorker = Executors.newSingleThreadScheduledExecutor();
     private static ScheduledFuture<?> scheduledBgPost = null;
@@ -79,9 +81,13 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
     private static final ScheduledExecutorService careportalEventWorker = Executors.newSingleThreadScheduledExecutor();
     private static ScheduledFuture<?> scheduledCareportalEventPost = null;
 
+    private static final ScheduledExecutorService profileSwitchEventWorker = Executors.newSingleThreadScheduledExecutor();
+    private static ScheduledFuture<?> scheduledProfileSwitchEventPost = null;
+
     public DatabaseHelper(Context context) {
         super(context, DATABASE_NAME, null, DATABASE_VERSION);
         onCreate(getWritableDatabase(), getConnectionSource());
+        //onUpgrade(getWritableDatabase(), getConnectionSource(), 1,1);
     }
 
     @Override
@@ -96,6 +102,7 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
             TableUtils.createTableIfNotExists(connectionSource, TemporaryBasal.class);
             TableUtils.createTableIfNotExists(connectionSource, ExtendedBolus.class);
             TableUtils.createTableIfNotExists(connectionSource, CareportalEvent.class);
+            TableUtils.createTableIfNotExists(connectionSource, ProfileSwitch.class);
         } catch (SQLException e) {
             log.error("Can't create database", e);
             throw new RuntimeException(e);
@@ -114,6 +121,7 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
             TableUtils.dropTable(connectionSource, TemporaryBasal.class, true);
             TableUtils.dropTable(connectionSource, ExtendedBolus.class, true);
             TableUtils.dropTable(connectionSource, CareportalEvent.class, true);
+            TableUtils.dropTable(connectionSource, ProfileSwitch.class, true);
             onCreate(database, connectionSource);
         } catch (SQLException e) {
             log.error("Can't drop databases", e);
@@ -158,6 +166,10 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
         log.debug("Before CareportalEvent size: " + DatabaseUtils.queryNumEntries(getReadableDatabase(), DATABASE_CAREPORTALEVENTS));
         getWritableDatabase().delete(DATABASE_CAREPORTALEVENTS, "recordDate" + " < '" + (new Date().getTime() - Constants.daysToKeepHistoryInDatabase * 24 * 60 * 60 * 1000L) + "'", null);
         log.debug("After CareportalEvent size: " + DatabaseUtils.queryNumEntries(getReadableDatabase(), DATABASE_CAREPORTALEVENTS));
+
+        log.debug("Before ProfileSwitch size: " + DatabaseUtils.queryNumEntries(getReadableDatabase(), DATABASE_PROFILESWITCHES));
+        getWritableDatabase().delete(DATABASE_PROFILESWITCHES, "recordDate" + " < '" + (new Date().getTime() - Constants.daysToKeepHistoryInDatabase * 24 * 60 * 60 * 1000L) + "'", null);
+        log.debug("After ProfileSwitch size: " + DatabaseUtils.queryNumEntries(getReadableDatabase(), DATABASE_PROFILESWITCHES));
     }
 
     public long size(String database) {
@@ -176,6 +188,7 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
             TableUtils.dropTable(connectionSource, TemporaryBasal.class, true);
             TableUtils.dropTable(connectionSource, ExtendedBolus.class, true);
             TableUtils.dropTable(connectionSource, CareportalEvent.class, true);
+            TableUtils.dropTable(connectionSource, ProfileSwitch.class, true);
             TableUtils.createTableIfNotExists(connectionSource, TempTarget.class);
             TableUtils.createTableIfNotExists(connectionSource, Treatment.class);
             TableUtils.createTableIfNotExists(connectionSource, BgReading.class);
@@ -184,7 +197,8 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
             TableUtils.createTableIfNotExists(connectionSource, TemporaryBasal.class);
             TableUtils.createTableIfNotExists(connectionSource, ExtendedBolus.class);
             TableUtils.createTableIfNotExists(connectionSource, CareportalEvent.class);
-            updateLatestTreatmentChange(0);
+            TableUtils.createTableIfNotExists(connectionSource, ProfileSwitch.class);
+            updateEarliestDataChange(0);
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -194,6 +208,7 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
         scheduleExtendedBolusChange();
         scheduleTemporaryTargetChange();
         scheduleCareportalEventChange();
+        scheduleProfileSwitchChange();
         new java.util.Timer().schedule(
                 new java.util.TimerTask() {
                     @Override
@@ -209,7 +224,7 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
         try {
             TableUtils.dropTable(connectionSource, Treatment.class, true);
             TableUtils.createTableIfNotExists(connectionSource, Treatment.class);
-            updateLatestTreatmentChange(0);
+            updateEarliestDataChange(0);
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -230,7 +245,7 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
         try {
             TableUtils.dropTable(connectionSource, TemporaryBasal.class, true);
             TableUtils.createTableIfNotExists(connectionSource, TemporaryBasal.class);
-            updateLatestTreatmentChange(0);
+            updateEarliestDataChange(0);
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -241,7 +256,7 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
         try {
             TableUtils.dropTable(connectionSource, ExtendedBolus.class, true);
             TableUtils.createTableIfNotExists(connectionSource, ExtendedBolus.class);
-            updateLatestTreatmentChange(0);
+            updateEarliestDataChange(0);
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -256,6 +271,16 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
             e.printStackTrace();
         }
         scheduleCareportalEventChange();
+    }
+
+    public void resetProfileSwitch() {
+        try {
+            TableUtils.dropTable(connectionSource, ProfileSwitch.class, true);
+            TableUtils.createTableIfNotExists(connectionSource, ProfileSwitch.class);
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        scheduleProfileSwitchChange();
     }
 
     // ------------------ getDao -------------------------------------------
@@ -292,19 +317,38 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
         return getDao(CareportalEvent.class);
     }
 
+    private Dao<ProfileSwitch, Long> getDaoProfileSwitch() throws SQLException {
+        return getDao(ProfileSwitch.class);
+    }
+
+    public long roundDateToSec(long date) {
+        return date - date % 1000;
+    }
     // -------------------  BgReading handling -----------------------
 
-    public void createIfNotExists(BgReading bgReading) {
-        bgReading.date = bgReading.date - bgReading.date % 1000;
+    public void createIfNotExists(BgReading bgReading, String from) {
         try {
-            getDaoBgReadings().createIfNotExists(bgReading);
+            bgReading.date = roundDateToSec(bgReading.date);
+            BgReading old = getDaoBgReadings().queryForId(bgReading.date);
+            if (old == null) {
+                getDaoBgReadings().create(bgReading);
+                log.debug("BG: New record from: " + from + " " + bgReading.toString());
+                scheduleBgChange();
+                return;
+            }
+            if (!old.isEqual(bgReading)) {
+                old.copyFrom(bgReading);
+                getDaoBgReadings().update(old);
+                log.debug("BG: Updating record from: " + from + " " + old.toString());
+                scheduleBgChange();
+                return;
+            }
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        scheduleBgChange();
     }
 
-    static public void scheduleBgChange() {
+    private static void scheduleBgChange() {
         class PostRunnable implements Runnable {
             public void run() {
                 log.debug("Firing EventNewBg");
@@ -449,34 +493,96 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
 
     //  -------------------- TREATMENT HANDLING -------------------
 
-    public boolean changeAffectingIobCob(Treatment t) {
-        Treatment existing = findTreatmentByTime(t.date);
-        if (existing == null)
-            return true;
-        if (existing.insulin == t.insulin && existing.carbs == t.carbs)
-            return false;
-        return true;
-    }
-
-    public Dao.CreateOrUpdateStatus createOrUpdate(Treatment treatment) {
-        treatment.date = treatment.date - treatment.date % 1000;
-        Dao.CreateOrUpdateStatus status = null;
+    // return true if new record is created
+    public boolean createOrUpdate(Treatment treatment) {
         try {
-            boolean historyChange = changeAffectingIobCob(treatment);
-            status = getDaoTreatments().createOrUpdate(treatment);
-            if (historyChange)
-                updateLatestTreatmentChange(treatment.date);
+            Treatment old;
+            treatment.date = roundDateToSec(treatment.date);
+
+            if (treatment.source == Source.PUMP) {
+                // check for changed from pump change in NS
+                QueryBuilder<Treatment, Long> queryBuilder = getDaoTreatments().queryBuilder();
+                Where where = queryBuilder.where();
+                where.eq("pumpId", treatment.pumpId);
+                PreparedQuery<Treatment> preparedQuery = queryBuilder.prepare();
+                List<Treatment> trList = getDaoTreatments().query(preparedQuery);
+                if (trList.size() > 0) {
+                    // do nothing, pump history record cannot be changed
+                    return false;
+                }
+                getDaoTreatments().create(treatment);
+                log.debug("TREATMENT: New record from: " + Source.getString(treatment.source) + " " + treatment.toString());
+                updateEarliestDataChange(treatment.date);
+                scheduleTreatmentChange();
+                return true;
+            }
+            if (treatment.source == Source.NIGHTSCOUT) {
+                old = getDaoTreatments().queryForId(treatment.date);
+                if (old != null) {
+                    if (!old.isEqual(treatment)) {
+                        boolean historyChange = old.isDataChanging(treatment);
+                        long oldDate = old.date;
+                        getDaoTreatments().delete(old); // need to delete/create because date may change too
+                        old.copyFrom(treatment);
+                        getDaoTreatments().create(old);
+                        log.debug("TREATMENT: Updating record by date from: " + Source.getString(treatment.source) + " " + old.toString());
+                        if (historyChange) {
+                            updateEarliestDataChange(oldDate);
+                            updateEarliestDataChange(old.date);
+                        }
+                        scheduleTreatmentChange();
+                        return true;
+                    }
+                    return false;
+                }
+                // find by NS _id
+                if (treatment._id != null) {
+                    QueryBuilder<Treatment, Long> queryBuilder = getDaoTreatments().queryBuilder();
+                    Where where = queryBuilder.where();
+                    where.eq("_id", treatment._id);
+                    PreparedQuery<Treatment> preparedQuery = queryBuilder.prepare();
+                    List<Treatment> trList = getDaoTreatments().query(preparedQuery);
+                    if (trList.size() > 0) {
+                        old = trList.get(0);
+                        if (!old.isEqual(treatment)) {
+                            boolean historyChange = old.isDataChanging(treatment);
+                            long oldDate = old.date;
+                            getDaoTreatments().delete(old); // need to delete/create because date may change too
+                            old.copyFrom(treatment);
+                            getDaoTreatments().create(old);
+                            log.debug("TREATMENT: Updating record by _id from: " + Source.getString(treatment.source) + " " + old.toString());
+                            if (historyChange) {
+                                updateEarliestDataChange(oldDate);
+                                updateEarliestDataChange(old.date);
+                            }
+                            scheduleTreatmentChange();
+                            return true;
+                        }
+                    }
+                }
+                getDaoTreatments().create(treatment);
+                log.debug("TREATMENT: New record from: " + Source.getString(treatment.source) + " " + treatment.toString());
+                updateEarliestDataChange(treatment.date);
+                scheduleTreatmentChange();
+                return true;
+            }
+            if (treatment.source == Source.USER) {
+                getDaoTreatments().create(treatment);
+                log.debug("TREATMENT: New record from: " + Source.getString(treatment.source) + " " + treatment.toString());
+                updateEarliestDataChange(treatment.date);
+                scheduleTreatmentChange();
+                return true;
+            }
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        scheduleTreatmentChange();
-        return status;
+        return false;
     }
 
     public void delete(Treatment treatment) {
         try {
             getDaoTreatments().delete(treatment);
-            updateLatestTreatmentChange(treatment.date);
+            updateEarliestDataChange(treatment.date);
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -486,10 +592,10 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
     public void deleteTreatmentById(String _id) {
         Treatment stored = findTreatmentById(_id);
         if (stored != null) {
-            log.debug("Removing TempTarget record from database: " + stored.log());
+            log.debug("TREATMENT: Removing Treatment record from database: " + stored.toString());
             delete(stored);
-        } else {
-            log.debug("Treatment not found database: " + _id);
+            updateEarliestDataChange(stored.date);
+            scheduleTreatmentChange();
         }
     }
 
@@ -516,49 +622,25 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
         return null;
     }
 
-    @Nullable
-    public Treatment findTreatmentByTime(Long timeIndex) {
-        try {
-            QueryBuilder<Treatment, String> qb = null;
-            Dao<Treatment, Long> daoTreatments = getDaoTreatments();
-            QueryBuilder<Treatment, Long> queryBuilder = daoTreatments.queryBuilder();
-            Where where = queryBuilder.where();
-            where.eq("date", timeIndex);
-            queryBuilder.limit(10L);
-            PreparedQuery<Treatment> preparedQuery = queryBuilder.prepare();
-            List<Treatment> trList = daoTreatments.query(preparedQuery);
-            if (trList.size() != 1) {
-                //log.debug("Treatment findTreatmentByTime query size: " + trList.size());
-                return null;
-            } else {
-                //log.debug("Treatment findTreatmentByTime found: " + trList.get(0).log());
-                return trList.get(0);
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
-    void updateLatestTreatmentChange(long newDate) {
-        if (latestTreatmentChange == null) {
-            latestTreatmentChange = newDate;
+    private void updateEarliestDataChange(long newDate) {
+        if (earliestDataChange == null) {
+            earliestDataChange = newDate;
             return;
         }
-        if (newDate < latestTreatmentChange) {
-            latestTreatmentChange = newDate;
+        if (newDate < earliestDataChange) {
+            earliestDataChange = newDate;
         }
     }
 
-    static public void scheduleTreatmentChange() {
+    private static void scheduleTreatmentChange() {
         class PostRunnable implements Runnable {
             public void run() {
                 log.debug("Firing EventTreatmentChange");
                 MainApp.bus().post(new EventReloadTreatmentData());
                 MainApp.bus().post(new EventTreatmentChange());
-                if (latestTreatmentChange != null)
-                    MainApp.bus().post(new EventNewHistoryData(latestTreatmentChange));
-                latestTreatmentChange = null;
+                if (earliestDataChange != null)
+                    MainApp.bus().post(new EventNewHistoryData(earliestDataChange));
+                earliestDataChange = null;
                 scheduledTratmentPost = null;
             }
         }
@@ -591,35 +673,15 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
 
     public void createTreatmentFromJsonIfNotExists(JSONObject trJson) {
         try {
-            QueryBuilder<Treatment, Long> queryBuilder = null;
-            queryBuilder = getDaoTreatments().queryBuilder();
-            Where where = queryBuilder.where();
-            where.eq("_id", trJson.getString("_id")).or().eq("date", trJson.getLong("mills"));
-            PreparedQuery<Treatment> preparedQuery = queryBuilder.prepare();
-            List<Treatment> list = getDaoTreatments().query(preparedQuery);
-            Treatment treatment;
-            if (list.size() == 0) {
-                treatment = new Treatment();
-                treatment.source = Source.NIGHTSCOUT;
-                if (Config.logIncommingData)
-                    log.debug("Adding Treatment record to database: " + trJson.toString());
-                // Record does not exists. add
-            } else if (list.size() == 1) {
-                treatment = list.get(0);
-                if (Config.logIncommingData)
-                    log.debug("Updating Treatment record in database: " + trJson.toString());
-            } else {
-                log.error("Something went wrong");
-                return;
-            }
-            treatment.date = trJson.getLong("mills");
+            Treatment treatment = new Treatment();
+            treatment.source = Source.NIGHTSCOUT;
+            treatment.date = roundDateToSec(trJson.getLong("mills"));
             treatment.carbs = trJson.has("carbs") ? trJson.getDouble("carbs") : 0;
             treatment.insulin = trJson.has("insulin") ? trJson.getDouble("insulin") : 0d;
+            treatment.pumpId = trJson.has("pumpId") ? trJson.getLong("pumpId") : 0;
             treatment._id = trJson.getString("_id");
             if (trJson.has("eventType")) {
-                treatment.mealBolus = true;
-                if (trJson.get("eventType").equals("Correction Bolus"))
-                    treatment.mealBolus = false;
+                treatment.mealBolus = !trJson.get("eventType").equals("Correction Bolus");
                 double carbs = treatment.carbs;
                 if (trJson.has("boluscalc")) {
                     JSONObject boluscalc = trJson.getJSONObject("boluscalc");
@@ -631,8 +693,6 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
                     treatment.mealBolus = false;
             }
             createOrUpdate(treatment);
-        } catch (SQLException e) {
-            e.printStackTrace();
         } catch (JSONException e) {
             e.printStackTrace();
         }
@@ -657,14 +717,58 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
         return new ArrayList<TempTarget>();
     }
 
-    public void createOrUpdate(TempTarget tempTarget) {
-        tempTarget.date = tempTarget.date - tempTarget.date % 1000;
+    public boolean createOrUpdate(TempTarget tempTarget) {
         try {
-            getDaoTempTargets().createOrUpdate(tempTarget);
-            scheduleTemporaryTargetChange();
+            TempTarget old;
+            tempTarget.date = roundDateToSec(tempTarget.date);
+
+            if (tempTarget.source == Source.NIGHTSCOUT) {
+                old = getDaoTempTargets().queryForId(tempTarget.date);
+                if (old != null) {
+                    if (!old.isEqual(tempTarget)) {
+                        getDaoTempTargets().delete(old); // need to delete/create because date may change too
+                        old.copyFrom(tempTarget);
+                        getDaoTempTargets().create(old);
+                        log.debug("TEMPTARGET: Updating record by date from: " + Source.getString(tempTarget.source) + " " + old.toString());
+                        scheduleTemporaryTargetChange();
+                        return true;
+                    }
+                    return false;
+                }
+                // find by NS _id
+                if (tempTarget._id != null) {
+                    QueryBuilder<TempTarget, Long> queryBuilder = getDaoTempTargets().queryBuilder();
+                    Where where = queryBuilder.where();
+                    where.eq("_id", tempTarget._id);
+                    PreparedQuery<TempTarget> preparedQuery = queryBuilder.prepare();
+                    List<TempTarget> trList = getDaoTempTargets().query(preparedQuery);
+                    if (trList.size() > 0) {
+                        old = trList.get(0);
+                        if (!old.isEqual(tempTarget)) {
+                            getDaoTempTargets().delete(old); // need to delete/create because date may change too
+                            old.copyFrom(tempTarget);
+                            getDaoTempTargets().create(old);
+                            log.debug("TEMPTARGET: Updating record by _id from: " + Source.getString(tempTarget.source) + " " + old.toString());
+                            scheduleTemporaryTargetChange();
+                            return true;
+                        }
+                    }
+                }
+                getDaoTempTargets().create(tempTarget);
+                log.debug("TEMPTARGET: New record from: " + Source.getString(tempTarget.source) + " " + tempTarget.toString());
+                scheduleTemporaryTargetChange();
+                return true;
+            }
+            if (tempTarget.source == Source.USER) {
+                getDaoTempTargets().create(tempTarget);
+                log.debug("TEMPTARGET: New record from: " + Source.getString(tempTarget.source) + " " + tempTarget.toString());
+                scheduleTemporaryTargetChange();
+                return true;
+            }
         } catch (SQLException e) {
             e.printStackTrace();
         }
+        return false;
     }
 
     public void delete(TempTarget tempTarget) {
@@ -676,7 +780,7 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
         }
     }
 
-    static public void scheduleTemporaryTargetChange() {
+    private static void scheduleTemporaryTargetChange() {
         class PostRunnable implements Runnable {
             public void run() {
                 log.debug("Firing EventTempTargetChange");
@@ -711,44 +815,32 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
 
     public void createTemptargetFromJsonIfNotExists(JSONObject trJson) {
         try {
-            QueryBuilder<TempTarget, Long> queryBuilder = null;
-            queryBuilder = getDaoTempTargets().queryBuilder();
-            Where where = queryBuilder.where();
-            where.eq("_id", trJson.getString("_id")).or().eq("date", trJson.getLong("mills"));
-            PreparedQuery<TempTarget> preparedQuery = queryBuilder.prepare();
-            List<TempTarget> list = getDaoTempTargets().query(preparedQuery);
-            NSProfile profile = MainApp.getConfigBuilder().getActiveProfile().getProfile();
-            if (profile == null) return; // no profile data, better ignore than do something wrong
+            Profile profile = MainApp.getConfigBuilder().getProfile();
             String units = profile.getUnits();
-            TempTarget tempTarget;
-            if (list.size() == 0) {
-                tempTarget = new TempTarget();
-                if (Config.logIncommingData)
-                    log.debug("Adding TempTarget record to database: " + trJson.toString());
-                // Record does not exists. add
-            } else if (list.size() == 1) {
-                tempTarget = list.get(0);
-                if (Config.logIncommingData)
-                    log.debug("Updating TempTarget record in database: " + trJson.toString());
-            } else {
-                log.error("Something went wrong");
-                return;
-            }
+            TempTarget tempTarget = new TempTarget();
             tempTarget.date = trJson.getLong("mills");
             tempTarget.durationInMinutes = trJson.getInt("duration");
-            tempTarget.low = NSProfile.toMgdl(trJson.getDouble("targetBottom"), units);
-            tempTarget.high = NSProfile.toMgdl(trJson.getDouble("targetTop"), units);
+            tempTarget.low = Profile.toMgdl(trJson.getDouble("targetBottom"), units);
+            tempTarget.high = Profile.toMgdl(trJson.getDouble("targetTop"), units);
             tempTarget.reason = trJson.getString("reason");
             tempTarget._id = trJson.getString("_id");
+            tempTarget.source = Source.NIGHTSCOUT;
             createOrUpdate(tempTarget);
-        } catch (SQLException e) {
-            e.printStackTrace();
         } catch (JSONException e) {
             e.printStackTrace();
         }
     }
 
     public void deleteTempTargetById(String _id) {
+        TempTarget stored = findTempTargetById(_id);
+        if (stored != null) {
+            log.debug("TEMPTARGET: Removing TempTarget record from database: " + stored.toString());
+            delete(stored);
+            scheduleTemporaryTargetChange();
+        }
+    }
+
+    public TempTarget findTempTargetById(String _id) {
         try {
             QueryBuilder<TempTarget, Long> queryBuilder = getDaoTempTargets().queryBuilder();
             Where where = queryBuilder.where();
@@ -757,17 +849,14 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
             List<TempTarget> list = getDaoTempTargets().query(preparedQuery);
 
             if (list.size() == 1) {
-                TempTarget record = list.get(0);
-                if (Config.logIncommingData)
-                    log.debug("Removing TempTarget record from database: " + record.log());
-                delete(record);
+                return list.get(0);
             } else {
-                if (Config.logIncommingData)
-                    log.debug("TempTarget not found database: " + _id);
+                return null;
             }
         } catch (SQLException e) {
             e.printStackTrace();
         }
+        return null;
     }
 
     // ----------------- DanaRHistory handling --------------------
@@ -817,30 +906,98 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
                     // already set
                 }
             }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        } catch (JSONException e) {
+        } catch (SQLException | JSONException e) {
             e.printStackTrace();
         }
     }
 
     // ------------ TemporaryBasal handling ---------------
 
-    public void createOrUpdate(TemporaryBasal tempBasal) {
-        tempBasal.date = tempBasal.date - tempBasal.date % 1000;
+    //return true if new record was created
+    public boolean createOrUpdate(TemporaryBasal tempBasal) {
         try {
-            getDaoTemporaryBasal().createOrUpdate(tempBasal);
-            updateLatestTreatmentChange(tempBasal.date);
+            TemporaryBasal old;
+            tempBasal.date = roundDateToSec(tempBasal.date);
+
+            if (tempBasal.source == Source.PUMP) {
+                // check for changed from pump change in NS
+                QueryBuilder<TemporaryBasal, Long> queryBuilder = getDaoTemporaryBasal().queryBuilder();
+                Where where = queryBuilder.where();
+                where.eq("pumpId", tempBasal.pumpId);
+                PreparedQuery<TemporaryBasal> preparedQuery = queryBuilder.prepare();
+                List<TemporaryBasal> trList = getDaoTemporaryBasal().query(preparedQuery);
+                if (trList.size() > 0) {
+                    // do nothing, pump history record cannot be changed
+                    log.debug("TEMPBASAL: Already exists from: " + Source.getString(tempBasal.source) + " " + tempBasal.toString());
+                    return false;
+                }
+                getDaoTemporaryBasal().create(tempBasal);
+                log.debug("TEMPBASAL: New record from: " + Source.getString(tempBasal.source) + " " + tempBasal.toString());
+                updateEarliestDataChange(tempBasal.date);
+                scheduleTemporaryBasalChange();
+                return true;
+            }
+            if (tempBasal.source == Source.NIGHTSCOUT) {
+                old = getDaoTemporaryBasal().queryForId(tempBasal.date);
+                if (old != null) {
+                    if (!old.isEqual(tempBasal)) {
+                        long oldDate = old.date;
+                        getDaoTemporaryBasal().delete(old); // need to delete/create because date may change too
+                        old.copyFrom(tempBasal);
+                        getDaoTemporaryBasal().create(old);
+                        log.debug("TEMPBASAL: Updating record by date from: " + Source.getString(tempBasal.source) + " " + old.toString());
+                        updateEarliestDataChange(oldDate);
+                        updateEarliestDataChange(old.date);
+                        scheduleTemporaryBasalChange();
+                        return true;
+                    }
+                    return false;
+                }
+                // find by NS _id
+                if (tempBasal._id != null) {
+                    QueryBuilder<TemporaryBasal, Long> queryBuilder = getDaoTemporaryBasal().queryBuilder();
+                    Where where = queryBuilder.where();
+                    where.eq("_id", tempBasal._id);
+                    PreparedQuery<TemporaryBasal> preparedQuery = queryBuilder.prepare();
+                    List<TemporaryBasal> trList = getDaoTemporaryBasal().query(preparedQuery);
+                    if (trList.size() > 0) {
+                        old = trList.get(0);
+                        if (!old.isEqual(tempBasal)) {
+                            long oldDate = old.date;
+                            getDaoTemporaryBasal().delete(old); // need to delete/create because date may change too
+                            old.copyFrom(tempBasal);
+                            getDaoTemporaryBasal().create(old);
+                            log.debug("TEMPBASAL: Updating record by _id from: " + Source.getString(tempBasal.source) + " " + old.toString());
+                            updateEarliestDataChange(oldDate);
+                            updateEarliestDataChange(old.date);
+                            scheduleTemporaryBasalChange();
+                            return true;
+                        }
+                    }
+                }
+                getDaoTemporaryBasal().create(tempBasal);
+                log.debug("TEMPBASAL: New record from: " + Source.getString(tempBasal.source) + " " + tempBasal.toString());
+                updateEarliestDataChange(tempBasal.date);
+                scheduleTemporaryBasalChange();
+                return true;
+            }
+            if (tempBasal.source == Source.USER) {
+                getDaoTemporaryBasal().create(tempBasal);
+                log.debug("TEMPBASAL: New record from: " + Source.getString(tempBasal.source) + " " + tempBasal.toString());
+                updateEarliestDataChange(tempBasal.date);
+                scheduleTemporaryBasalChange();
+                return true;
+            }
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        scheduleTemporaryBasalChange();
+        return false;
     }
 
     public void delete(TemporaryBasal tempBasal) {
         try {
             getDaoTemporaryBasal().delete(tempBasal);
-            updateLatestTreatmentChange(tempBasal.date);
+            updateEarliestDataChange(tempBasal.date);
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -863,36 +1020,15 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
         return new ArrayList<TemporaryBasal>();
     }
 
-    @Nullable
-    public TemporaryBasal findTempBasalByTime(Long timeIndex) {
-        try {
-            QueryBuilder<TemporaryBasal, String> qb = null;
-            Dao<TemporaryBasal, Long> daoTemporaryBasal = getDaoTemporaryBasal();
-            QueryBuilder<TemporaryBasal, Long> queryBuilder = daoTemporaryBasal.queryBuilder();
-            Where where = queryBuilder.where();
-            where.eq("date", timeIndex);
-            queryBuilder.limit(10L);
-            PreparedQuery<TemporaryBasal> preparedQuery = queryBuilder.prepare();
-            List<TemporaryBasal> trList = daoTemporaryBasal.query(preparedQuery);
-            if (trList.size() != 1) {
-                //log.debug("TemporaryBasal findTempBasalByTime query size: " + trList.size());
-                return null;
-            } else {
-                //log.debug("TemporaryBasal findTempBasalByTime found: " + trList.get(0).log());
-                return trList.get(0);
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
-    static public void scheduleTemporaryBasalChange() {
+    private static void scheduleTemporaryBasalChange() {
         class PostRunnable implements Runnable {
             public void run() {
                 log.debug("Firing EventTempBasalChange");
                 MainApp.bus().post(new EventReloadTempBasalData());
                 MainApp.bus().post(new EventTempBasalChange());
+                if (earliestDataChange != null)
+                    MainApp.bus().post(new EventNewHistoryData(earliestDataChange));
+                earliestDataChange = null;
                 scheduledTemBasalsPost = null;
             }
         }
@@ -925,82 +1061,28 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
     public void createTempBasalFromJsonIfNotExists(JSONObject trJson) {
         try {
             if (trJson.has("originalExtendedAmount")) { // extended bolus uploaded as temp basal
-                QueryBuilder<ExtendedBolus, Long> queryBuilder = null;
-                queryBuilder = getDaoExtendedBolus().queryBuilder();
-                Where where = queryBuilder.where();
-                where.eq("_id", trJson.getString("_id")).or().eq("date", trJson.getLong("mills"));
-                PreparedQuery<ExtendedBolus> preparedQuery = queryBuilder.prepare();
-                List<ExtendedBolus> list = getDaoExtendedBolus().query(preparedQuery);
-                ExtendedBolus extendedBolus;
-                if (list.size() == 0) {
-                    extendedBolus = new ExtendedBolus();
-                    extendedBolus.source = Source.NIGHTSCOUT;
-                    if (Config.logIncommingData)
-                        log.debug("Adding ExtendedBolus record to database: " + trJson.toString());
-                    // Record does not exists. add
-                } else if (list.size() == 1) {
-                    extendedBolus = list.get(0);
-                    if (Config.logIncommingData)
-                        log.debug("Updating ExtendedBolus record in database: " + trJson.toString());
-                } else {
-                    log.error("Something went wrong");
-                    return;
-                }
+                ExtendedBolus extendedBolus = new ExtendedBolus();
+                extendedBolus.source = Source.NIGHTSCOUT;
                 extendedBolus.date = trJson.getLong("mills");
+                extendedBolus.pumpId = trJson.has("pumpId") ? trJson.getLong("pumpId") : 0;
                 extendedBolus.durationInMinutes = trJson.getInt("duration");
                 extendedBolus.insulin = trJson.getDouble("originalExtendedAmount");
                 extendedBolus._id = trJson.getString("_id");
                 createOrUpdate(extendedBolus);
             } else if (trJson.has("isFakedTempBasal")) { // extended bolus end uploaded as temp basal end
-                QueryBuilder<ExtendedBolus, Long> queryBuilder = null;
-                queryBuilder = getDaoExtendedBolus().queryBuilder();
-                Where where = queryBuilder.where();
-                where.eq("_id", trJson.getString("_id")).or().eq("date", trJson.getLong("mills"));
-                PreparedQuery<ExtendedBolus> preparedQuery = queryBuilder.prepare();
-                List<ExtendedBolus> list = getDaoExtendedBolus().query(preparedQuery);
-                ExtendedBolus extendedBolus;
-                if (list.size() == 0) {
-                    extendedBolus = new ExtendedBolus();
-                    extendedBolus.source = Source.NIGHTSCOUT;
-                    if (Config.logIncommingData)
-                        log.debug("Adding ExtendedBolus record to database: " + trJson.toString());
-                    // Record does not exists. add
-                } else if (list.size() == 1) {
-                    extendedBolus = list.get(0);
-                    if (Config.logIncommingData)
-                        log.debug("Updating ExtendedBolus record in database: " + trJson.toString());
-                } else {
-                    log.error("Something went wrong");
-                    return;
-                }
+                ExtendedBolus extendedBolus = new ExtendedBolus();
+                extendedBolus.source = Source.NIGHTSCOUT;
                 extendedBolus.date = trJson.getLong("mills");
+                extendedBolus.pumpId = trJson.has("pumpId") ? trJson.getLong("pumpId") : 0;
                 extendedBolus.durationInMinutes = 0;
                 extendedBolus.insulin = 0;
                 extendedBolus._id = trJson.getString("_id");
                 createOrUpdate(extendedBolus);
             } else {
-                QueryBuilder<TemporaryBasal, Long> queryBuilder = null;
-                queryBuilder = getDaoTemporaryBasal().queryBuilder();
-                Where where = queryBuilder.where();
-                where.eq("_id", trJson.getString("_id")).or().eq("date", trJson.getLong("mills"));
-                PreparedQuery<TemporaryBasal> preparedQuery = queryBuilder.prepare();
-                List<TemporaryBasal> list = getDaoTemporaryBasal().query(preparedQuery);
-                TemporaryBasal tempBasal;
-                if (list.size() == 0) {
-                    tempBasal = new TemporaryBasal();
-                    tempBasal.source = Source.NIGHTSCOUT;
-                    if (Config.logIncommingData)
-                        log.debug("Adding TemporaryBasal record to database: " + trJson.toString());
-                    // Record does not exists. add
-                } else if (list.size() == 1) {
-                    tempBasal = list.get(0);
-                    if (Config.logIncommingData)
-                        log.debug("Updating TemporaryBasal record in database: " + trJson.toString());
-                } else {
-                    log.error("Something went wrong");
-                    return;
-                }
+                TemporaryBasal tempBasal = new TemporaryBasal();
                 tempBasal.date = trJson.getLong("mills");
+                tempBasal.source = Source.NIGHTSCOUT;
+                tempBasal.pumpId = trJson.has("pumpId") ? trJson.getLong("pumpId") : 0;
                 if (trJson.has("duration")) {
                     tempBasal.durationInMinutes = trJson.getInt("duration");
                 }
@@ -1015,14 +1097,22 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
                 tempBasal._id = trJson.getString("_id");
                 createOrUpdate(tempBasal);
             }
-        } catch (SQLException e) {
-            e.printStackTrace();
         } catch (JSONException e) {
             e.printStackTrace();
         }
     }
 
     public void deleteTempBasalById(String _id) {
+        TemporaryBasal stored = findTempBasalById(_id);
+        if (stored != null) {
+            log.debug("TEMPBASAL: Removing TempBasal record from database: " + stored.toString());
+            delete(stored);
+            updateEarliestDataChange(stored.date);
+            scheduleTemporaryBasalChange();
+        }
+    }
+
+    public TemporaryBasal findTempBasalById(String _id) {
         try {
             QueryBuilder<TemporaryBasal, Long> queryBuilder = null;
             queryBuilder = getDaoTemporaryBasal().queryBuilder();
@@ -1031,37 +1121,102 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
             PreparedQuery<TemporaryBasal> preparedQuery = queryBuilder.prepare();
             List<TemporaryBasal> list = getDaoTemporaryBasal().query(preparedQuery);
 
-            if (list.size() == 1) {
-                TemporaryBasal record = list.get(0);
-                if (Config.logIncommingData)
-                    log.debug("Removing TempBasal record from database: " + record.log());
-                delete(record);
+            if (list.size() != 1) {
+                return null;
             } else {
-                if (Config.logIncommingData)
-                    log.debug("TempBasal not found database: " + _id);
+                return list.get(0);
             }
         } catch (SQLException e) {
             e.printStackTrace();
         }
+        return null;
     }
 
     // ------------ ExtendedBolus handling ---------------
 
-    public void createOrUpdate(ExtendedBolus extendedBolus) {
-        extendedBolus.date = extendedBolus.date - extendedBolus.date % 1000;
+    public boolean createOrUpdate(ExtendedBolus extendedBolus) {
         try {
-            getDaoExtendedBolus().createOrUpdate(extendedBolus);
-            updateLatestTreatmentChange(extendedBolus.date);
+            ExtendedBolus old;
+            extendedBolus.date = roundDateToSec(extendedBolus.date);
+
+            if (extendedBolus.source == Source.PUMP) {
+                // check for changed from pump change in NS
+                QueryBuilder<ExtendedBolus, Long> queryBuilder = getDaoExtendedBolus().queryBuilder();
+                Where where = queryBuilder.where();
+                where.eq("pumpId", extendedBolus.pumpId);
+                PreparedQuery<ExtendedBolus> preparedQuery = queryBuilder.prepare();
+                List<ExtendedBolus> trList = getDaoExtendedBolus().query(preparedQuery);
+                if (trList.size() > 0) {
+                    // do nothing, pump history record cannot be changed
+                    return false;
+                }
+                getDaoExtendedBolus().create(extendedBolus);
+                log.debug("EXTENDEDBOLUS: New record from: " + Source.getString(extendedBolus.source) + " " + extendedBolus.toString());
+                updateEarliestDataChange(extendedBolus.date);
+                scheduleTreatmentChange();
+                return true;
+            }
+            if (extendedBolus.source == Source.NIGHTSCOUT) {
+                old = getDaoExtendedBolus().queryForId(extendedBolus.date);
+                if (old != null) {
+                    if (!old.isEqual(extendedBolus)) {
+                        long oldDate = old.date;
+                        getDaoExtendedBolus().delete(old); // need to delete/create because date may change too
+                        old.copyFrom(extendedBolus);
+                        getDaoExtendedBolus().create(old);
+                        log.debug("EXTENDEDBOLUS: Updating record by date from: " + Source.getString(extendedBolus.source) + " " + old.toString());
+                        updateEarliestDataChange(oldDate);
+                        updateEarliestDataChange(old.date);
+                        scheduleTreatmentChange();
+                        return true;
+                    }
+                    return false;
+                }
+                // find by NS _id
+                if (extendedBolus._id != null) {
+                    QueryBuilder<ExtendedBolus, Long> queryBuilder = getDaoExtendedBolus().queryBuilder();
+                    Where where = queryBuilder.where();
+                    where.eq("_id", extendedBolus._id);
+                    PreparedQuery<ExtendedBolus> preparedQuery = queryBuilder.prepare();
+                    List<ExtendedBolus> trList = getDaoExtendedBolus().query(preparedQuery);
+                    if (trList.size() > 0) {
+                        old = trList.get(0);
+                        if (!old.isEqual(extendedBolus)) {
+                            long oldDate = old.date;
+                            getDaoExtendedBolus().delete(old); // need to delete/create because date may change too
+                            old.copyFrom(extendedBolus);
+                            getDaoExtendedBolus().create(old);
+                            log.debug("EXTENDEDBOLUS: Updating record by _id from: " + Source.getString(extendedBolus.source) + " " + old.toString());
+                            updateEarliestDataChange(oldDate);
+                            updateEarliestDataChange(old.date);
+                            scheduleTreatmentChange();
+                            return true;
+                        }
+                    }
+                }
+                getDaoExtendedBolus().create(extendedBolus);
+                log.debug("EXTENDEDBOLUS: New record from: " + Source.getString(extendedBolus.source) + " " + extendedBolus.toString());
+                updateEarliestDataChange(extendedBolus.date);
+                scheduleTreatmentChange();
+                return true;
+            }
+            if (extendedBolus.source == Source.USER) {
+                getDaoExtendedBolus().create(extendedBolus);
+                log.debug("EXTENDEDBOLUS: New record from: " + Source.getString(extendedBolus.source) + " " + extendedBolus.toString());
+                updateEarliestDataChange(extendedBolus.date);
+                scheduleTreatmentChange();
+                return true;
+            }
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        scheduleExtendedBolusChange();
+        return false;
     }
 
     public void delete(ExtendedBolus extendedBolus) {
         try {
             getDaoExtendedBolus().delete(extendedBolus);
-            updateLatestTreatmentChange(extendedBolus.date);
+            updateEarliestDataChange(extendedBolus.date);
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -1084,31 +1239,16 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
         return new ArrayList<ExtendedBolus>();
     }
 
-    @Nullable
-    public ExtendedBolus findExtendedBolusByTime(Long timeIndex) {
-        try {
-            QueryBuilder<ExtendedBolus, String> qb = null;
-            Dao<ExtendedBolus, Long> daoExtendedBolus = getDaoExtendedBolus();
-            QueryBuilder<ExtendedBolus, Long> queryBuilder = daoExtendedBolus.queryBuilder();
-            Where where = queryBuilder.where();
-            where.eq("date", timeIndex);
-            queryBuilder.limit(10L);
-            PreparedQuery<ExtendedBolus> preparedQuery = queryBuilder.prepare();
-            List<ExtendedBolus> trList = daoExtendedBolus.query(preparedQuery);
-            if (trList.size() != 1) {
-                //log.debug("ExtendedBolus findExtendedBolusByTime query size: " + trList.size());
-                return null;
-            } else {
-                //log.debug("ExtendedBolus findExtendedBolusByTime found: " + trList.get(0).log());
-                return trList.get(0);
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
     public void deleteExtendedBolusById(String _id) {
+        ExtendedBolus stored = findExtendedBolusById(_id);
+        if (stored != null) {
+            log.debug("EXTENDEDBOLUS: Removing ExtendedBolus record from database: " + stored.toString());
+            delete(stored);
+            updateEarliestDataChange(stored.date);
+            scheduleExtendedBolusChange();
+        }
+    }
+    public ExtendedBolus findExtendedBolusById(String _id) {
         try {
             QueryBuilder<ExtendedBolus, Long> queryBuilder = null;
             queryBuilder = getDaoExtendedBolus().queryBuilder();
@@ -1118,17 +1258,14 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
             List<ExtendedBolus> list = getDaoExtendedBolus().query(preparedQuery);
 
             if (list.size() == 1) {
-                ExtendedBolus record = list.get(0);
-                if (Config.logIncommingData)
-                    log.debug("Removing ExtendedBolus record from database: " + record.log());
-                delete(record);
+                return list.get(0);
             } else {
-                if (Config.logIncommingData)
-                    log.debug("ExtendedBolus not found database: " + _id);
+                return null;
             }
         } catch (SQLException e) {
             e.printStackTrace();
         }
+        return null;
     }
 
     /*
@@ -1176,19 +1313,20 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
             extendedBolus.insulin = trJson.getDouble("relative");
             extendedBolus._id = trJson.getString("_id");
             createOrUpdate(extendedBolus);
-        } catch (SQLException e) {
-            e.printStackTrace();
-        } catch (JSONException e) {
+        } catch (SQLException | JSONException e) {
             e.printStackTrace();
         }
     }
 
-    static public void scheduleExtendedBolusChange() {
+    private static void scheduleExtendedBolusChange() {
         class PostRunnable implements Runnable {
             public void run() {
                 log.debug("Firing EventExtendedBolusChange");
                 MainApp.bus().post(new EventReloadTreatmentData());
                 MainApp.bus().post(new EventExtendedBolusChange());
+                if (earliestDataChange != null)
+                    MainApp.bus().post(new EventNewHistoryData(earliestDataChange));
+                earliestDataChange = null;
                 scheduledExtendedBolusPost = null;
             }
         }
@@ -1245,6 +1383,22 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
         return null;
     }
 
+    public List<CareportalEvent> getCareportalEventsFromTime(long mills, boolean ascending) {
+        try {
+            List<CareportalEvent> careportalEvents;
+            QueryBuilder<CareportalEvent, Long> queryBuilder = getDaoCareportalEvents().queryBuilder();
+            queryBuilder.orderBy("date", ascending);
+            Where where = queryBuilder.where();
+            where.ge("date", mills);
+            PreparedQuery<CareportalEvent> preparedQuery = queryBuilder.prepare();
+            careportalEvents = getDaoCareportalEvents().query(preparedQuery);
+            return careportalEvents;
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return new ArrayList<CareportalEvent>();
+    }
+
     public void deleteCareportalEventById(String _id) {
         try {
             QueryBuilder<CareportalEvent, Long> queryBuilder = null;
@@ -1296,14 +1450,12 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
             careportalEvent.json = trJson.toString();
             careportalEvent._id = trJson.getString("_id");
             createOrUpdate(careportalEvent);
-        } catch (SQLException e) {
-            e.printStackTrace();
-        } catch (JSONException e) {
+        } catch (SQLException | JSONException e) {
             e.printStackTrace();
         }
     }
 
-    static public void scheduleCareportalEventChange() {
+    private static void scheduleCareportalEventChange() {
         class PostRunnable implements Runnable {
             public void run() {
                 log.debug("Firing scheduleCareportalEventChange");
@@ -1319,6 +1471,169 @@ public class DatabaseHelper extends OrmLiteSqliteOpenHelper {
         final int sec = 1;
         scheduledCareportalEventPost = careportalEventWorker.schedule(task, sec, TimeUnit.SECONDS);
 
+    }
+
+    // ---------------- ProfileSwitch handling ---------------
+
+    public List<ProfileSwitch> getProfileSwitchData(boolean ascending) {
+        try {
+            Dao<ProfileSwitch, Long> daoProfileSwitch = getDaoProfileSwitch();
+            List<ProfileSwitch> profileSwitches;
+            QueryBuilder<ProfileSwitch, Long> queryBuilder = daoProfileSwitch.queryBuilder();
+            queryBuilder.orderBy("date", ascending);
+            queryBuilder.limit(20L);
+            PreparedQuery<ProfileSwitch> preparedQuery = queryBuilder.prepare();
+            profileSwitches = daoProfileSwitch.query(preparedQuery);
+            return profileSwitches;
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return new ArrayList<ProfileSwitch>();
+    }
+
+    public boolean createOrUpdate(ProfileSwitch profileSwitch) {
+        try {
+            ProfileSwitch old;
+            profileSwitch.date = roundDateToSec(profileSwitch.date);
+
+            if (profileSwitch.source == Source.NIGHTSCOUT) {
+                old = getDaoProfileSwitch().queryForId(profileSwitch.date);
+                if (old != null) {
+                    if (!old.isEqual(profileSwitch)) {
+                        getDaoProfileSwitch().delete(old); // need to delete/create because date may change too
+                        old.copyFrom(profileSwitch);
+                        getDaoProfileSwitch().create(old);
+                        log.debug("PROFILESWITCH: Updating record by date from: " + Source.getString(profileSwitch.source) + " " + old.toString());
+                        scheduleTemporaryTargetChange();
+                        return true;
+                    }
+                    return false;
+                }
+                // find by NS _id
+                if (profileSwitch._id != null) {
+                    QueryBuilder<ProfileSwitch, Long> queryBuilder = getDaoProfileSwitch().queryBuilder();
+                    Where where = queryBuilder.where();
+                    where.eq("_id", profileSwitch._id);
+                    PreparedQuery<ProfileSwitch> preparedQuery = queryBuilder.prepare();
+                    List<ProfileSwitch> trList = getDaoProfileSwitch().query(preparedQuery);
+                    if (trList.size() > 0) {
+                        old = trList.get(0);
+                        if (!old.isEqual(profileSwitch)) {
+                            getDaoProfileSwitch().delete(old); // need to delete/create because date may change too
+                            old.copyFrom(profileSwitch);
+                            getDaoProfileSwitch().create(old);
+                            log.debug("PROFILESWITCH: Updating record by _id from: " + Source.getString(profileSwitch.source) + " " + old.toString());
+                            scheduleTemporaryTargetChange();
+                            return true;
+                        }
+                    }
+                }
+                getDaoProfileSwitch().create(profileSwitch);
+                log.debug("PROFILESWITCH: New record from: " + Source.getString(profileSwitch.source) + " " + profileSwitch.toString());
+                scheduleTemporaryTargetChange();
+                return true;
+            }
+            if (profileSwitch.source == Source.USER) {
+                getDaoProfileSwitch().create(profileSwitch);
+                log.debug("PROFILESWITCH: New record from: " + Source.getString(profileSwitch.source) + " " + profileSwitch.toString());
+                scheduleTemporaryTargetChange();
+                return true;
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    public void delete(ProfileSwitch profileSwitch) {
+        try {
+            getDaoProfileSwitch().delete(profileSwitch);
+            scheduleProfileSwitchChange();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void scheduleProfileSwitchChange() {
+        class PostRunnable implements Runnable {
+            public void run() {
+                log.debug("Firing EventProfileSwitchChange");
+                MainApp.bus().post(new EventProfileSwitchChange());
+                scheduledProfileSwitchEventPost = null;
+            }
+        }
+        // prepare task for execution in 1 sec
+        // cancel waiting task to prevent sending multiple posts
+        if (scheduledProfileSwitchEventPost != null)
+            scheduledProfileSwitchEventPost.cancel(false);
+        Runnable task = new PostRunnable();
+        final int sec = 1;
+        scheduledProfileSwitchEventPost = profileSwitchEventWorker.schedule(task, sec, TimeUnit.SECONDS);
+
+    }
+
+ /*
+{
+    "_id":"592fa43ed97496a80da913d2",
+    "created_at":"2017-06-01T05:20:06Z",
+    "eventType":"Profile Switch",
+    "profile":"2016 +30%",
+    "units":"mmol",
+    "enteredBy":"sony",
+    "NSCLIENT_ID":1496294454309,
+}
+  */
+
+    public void createProfileSwitchFromJsonIfNotExists(JSONObject trJson) {
+        try {
+            ProfileSwitch profileSwitch = new ProfileSwitch();
+            profileSwitch.date = trJson.getLong("mills");
+            if (trJson.has("duration"))
+                profileSwitch.durationInMinutes = trJson.getInt("duration");
+            profileSwitch._id = trJson.getString("_id");
+            profileSwitch.profileName = trJson.getString("profile");
+            profileSwitch.isCPP = trJson.has("CircadianPercentageProfile");
+            profileSwitch.source = Source.NIGHTSCOUT;
+            if (trJson.has("timeshift"))
+                profileSwitch.timeshift = trJson.getInt("timeshift");
+            if (trJson.has("percentage"))
+                profileSwitch.percentage = trJson.getInt("percentage");
+            if (trJson.has("profileJson"))
+                profileSwitch.profileJson = trJson.getString("profileJson");
+            if (trJson.has("profilePlugin"))
+                profileSwitch.profilePlugin = trJson.getString("profilePlugin");
+            createOrUpdate(profileSwitch);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void deleteProfileSwitchById(String _id) {
+        ProfileSwitch stored = findProfileSwitchById(_id);
+        if (stored != null) {
+            log.debug("PROFILESWITCH: Removing ProfileSwitch record from database: " + stored.toString());
+            delete(stored);
+            scheduleTemporaryTargetChange();
+        }
+    }
+
+    public ProfileSwitch findProfileSwitchById(String _id) {
+        try {
+            QueryBuilder<ProfileSwitch, Long> queryBuilder = getDaoProfileSwitch().queryBuilder();
+            Where where = queryBuilder.where();
+            where.eq("_id", _id);
+            PreparedQuery<ProfileSwitch> preparedQuery = queryBuilder.prepare();
+            List<ProfileSwitch> list = getDaoProfileSwitch().query(preparedQuery);
+
+            if (list.size() == 1) {
+                return list.get(0);
+            } else {
+                return null;
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 
 }

@@ -1,26 +1,27 @@
 package info.nightscout.androidaps.db;
 
+import android.graphics.Color;
+
 import com.j256.ormlite.field.DatabaseField;
 import com.j256.ormlite.table.DatabaseTable;
 
-import org.json.JSONException;
-import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 
 import info.nightscout.androidaps.Constants;
 import info.nightscout.androidaps.MainApp;
 import info.nightscout.androidaps.data.Iob;
 import info.nightscout.androidaps.interfaces.InsulinInterface;
 import info.nightscout.androidaps.plugins.ConfigBuilder.ConfigBuilderPlugin;
+import info.nightscout.androidaps.data.Profile;
 import info.nightscout.androidaps.plugins.Overview.graphExtensions.DataPointWithLabelInterface;
-import info.nightscout.androidaps.plugins.NSClientInternal.data.NSProfile;
+import info.nightscout.androidaps.plugins.Overview.graphExtensions.PointsWithLabelGraphSeries;
 import info.nightscout.utils.DateUtil;
 import info.nightscout.utils.DecimalFormatter;
-import info.nightscout.utils.NSUpload;
 
 @DatabaseTable(tableName = DatabaseHelper.DATABASE_TREATMENTS)
 public class Treatment implements DataPointWithLabelInterface {
@@ -32,15 +33,18 @@ public class Treatment implements DataPointWithLabelInterface {
     @DatabaseField
     public boolean isValid = true;
 
+    @DatabaseField(index = true)
+    public long pumpId = 0;
+
     @DatabaseField
     public int source = Source.NONE;
     @DatabaseField
     public String _id;
 
     @DatabaseField
-    public Double insulin = 0d;
+    public double insulin = 0d;
     @DatabaseField
-    public Double carbs = 0d;
+    public double carbs = 0d;
     @DatabaseField
     public boolean mealBolus = true; // true for meal bolus , false for correction bolus
 
@@ -52,35 +56,67 @@ public class Treatment implements DataPointWithLabelInterface {
     public Treatment() {
     }
 
+    public Treatment(long date) {
+        this.date = date;
+    }
+
     public Treatment(InsulinInterface insulin) {
         insulinInterfaceID = insulin.getId();
         dia = insulin.getDia();
-    }
-
-    public void copyFrom(Treatment t) {
-        this.date = t.date;
-        this.isValid = t.isValid;
-        this.source = t.source;
-        this._id = t._id;
-        this.insulin = t.insulin;
-        this.carbs = t.carbs;
-        this.mealBolus = t.mealBolus;
     }
 
     public long getMillisecondsFromStart() {
         return new Date().getTime() - date;
     }
 
-    public String log() {
+    public String toString() {
         return "Treatment{" +
                 "date= " + date +
                 ", date= " + DateUtil.dateAndTimeString(date) +
                 ", isValid= " + isValid +
                 ", _id= " + _id +
+                ", pumpId= " + pumpId +
                 ", insulin= " + insulin +
                 ", carbs= " + carbs +
                 ", mealBolus= " + mealBolus +
                 "}";
+    }
+
+    public boolean isDataChanging(Treatment other) {
+        if (date != other.date) {
+            return true;
+        }
+        if (insulin != other.insulin)
+            return true;
+        if (carbs != other.carbs)
+            return true;
+        return false;
+    }
+
+    public boolean isEqual(Treatment other) {
+        if (date != other.date) {
+            return false;
+        }
+        if (insulin != other.insulin)
+            return false;
+        if (carbs != other.carbs)
+            return false;
+        if (mealBolus != other.mealBolus)
+            return false;
+        if (pumpId != other.pumpId)
+            return false;
+        if (!Objects.equals(_id, other._id))
+            return false;
+        return true;
+    }
+
+    public void copyFrom(Treatment t) {
+        date = t.date;
+        _id = t._id;
+        insulin = t.insulin;
+        carbs = t.carbs;
+        mealBolus = t.mealBolus;
+        pumpId = t.pumpId;
     }
 
     //  ----------------- DataPointInterface --------------------
@@ -102,19 +138,33 @@ public class Treatment implements DataPointWithLabelInterface {
         String label = "";
         if (insulin > 0) label += DecimalFormatter.to2Decimal(insulin) + "U";
         if (carbs > 0)
-            label += (label.equals("") ? "" : " ") + DecimalFormatter.to0Decimal(carbs) + "g";
+            label += "~" + DecimalFormatter.to0Decimal(carbs) + "g";
         return label;
     }
 
-    public void setYValue(List<BgReading> bgReadingsArray) {
-        NSProfile profile = MainApp.getConfigBuilder().getActiveProfile().getProfile();
-        if (profile == null) return;
-        for (int r = bgReadingsArray.size() - 1; r >= 0; r--) {
-            BgReading reading = bgReadingsArray.get(r);
-            if (reading.date > date) continue;
-            yValue = NSProfile.fromMgdlToUnits(reading.value, profile.getUnits());
-            break;
-        }
+    @Override
+    public long getDuration() {
+        return 0;
+    }
+
+    @Override
+    public PointsWithLabelGraphSeries.Shape getShape() {
+        return PointsWithLabelGraphSeries.Shape.BOLUS;
+    }
+
+    @Override
+    public float getSize() {
+        return 10;
+    }
+
+    @Override
+    public int getColor() {
+        return Color.CYAN;
+    }
+
+    @Override
+    public void setY(double y) {
+        yValue = y;
     }
 
     //  ----------------- DataPointInterface end --------------------

@@ -7,14 +7,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Date;
+import java.util.Objects;
 
 import info.nightscout.androidaps.MainApp;
 import info.nightscout.androidaps.data.Iob;
 import info.nightscout.androidaps.data.IobTotal;
+import info.nightscout.androidaps.data.Profile;
 import info.nightscout.androidaps.interfaces.InsulinInterface;
 import info.nightscout.androidaps.interfaces.Interval;
 import info.nightscout.androidaps.plugins.ConfigBuilder.ConfigBuilderPlugin;
-import info.nightscout.androidaps.plugins.NSClientInternal.data.NSProfile;
 import info.nightscout.utils.DateUtil;
 import info.nightscout.utils.DecimalFormatter;
 
@@ -32,6 +33,9 @@ public class TemporaryBasal implements Interval {
     @DatabaseField
     public boolean isValid = true;
 
+    @DatabaseField(index = true)
+    public long pumpId = 0;
+
     @DatabaseField
     public int source = Source.NONE;
     @DatabaseField
@@ -46,12 +50,15 @@ public class TemporaryBasal implements Interval {
     @DatabaseField
     public double absoluteRate = 0d;
 
-    public TemporaryBasal() {}
+    public TemporaryBasal() {
+    }
+
+    public TemporaryBasal(long date) {
+        this.date = date;
+    }
 
     public TemporaryBasal(ExtendedBolus extendedBolus) {
-        double basal = 0d;
-        if (ConfigBuilderPlugin.getActiveProfile() != null && ConfigBuilderPlugin.getActiveProfile().getProfile() != null)
-            basal = ConfigBuilderPlugin.getActiveProfile().getProfile().getBasal(NSProfile.secondsFromMidnight(extendedBolus.date));
+        double basal = MainApp.getConfigBuilder().getProfile(extendedBolus.date).getBasal(extendedBolus.date);
         this.date = extendedBolus.date;
         this.isValid = extendedBolus.isValid;
         this.source = extendedBolus.source;
@@ -67,11 +74,41 @@ public class TemporaryBasal implements Interval {
         t.isValid = isValid;
         t.source = source;
         t._id = _id;
+        t.pumpId = pumpId;
         t.durationInMinutes = durationInMinutes;
         t.isAbsolute = isAbsolute;
         t.percentRate = percentRate;
         t.absoluteRate = absoluteRate;
         return t;
+    }
+
+    public boolean isEqual(TemporaryBasal other) {
+        if (date != other.date) {
+            return false;
+        }
+        if (durationInMinutes != other.durationInMinutes)
+            return false;
+        if (isAbsolute != other.isAbsolute)
+            return false;
+        if (percentRate != other.percentRate)
+            return false;
+        if (absoluteRate != other.absoluteRate)
+            return false;
+        if (pumpId != other.pumpId)
+            return false;
+        if (!Objects.equals(_id, other._id))
+            return false;
+        return true;
+    }
+
+    public void copyFrom(TemporaryBasal t) {
+        date = t.date;
+        _id = t._id;
+        durationInMinutes = t.durationInMinutes;
+        isAbsolute = t.isAbsolute;
+        percentRate = t.percentRate;
+        absoluteRate = t.absoluteRate;
+        pumpId = t.pumpId;
     }
 
     // -------- Interval interface ---------
@@ -134,13 +171,10 @@ public class TemporaryBasal implements Interval {
 
     public IobTotal iobCalc(long time) {
         IobTotal result = new IobTotal(time);
-        NSProfile profile = ConfigBuilderPlugin.getActiveProfile().getProfile();
+        Profile profile = MainApp.getConfigBuilder().getProfile(time);
         InsulinInterface insulinInterface = ConfigBuilderPlugin.getActiveInsulin();
 
-        if (profile == null)
-            return result;
-
-        int realDuration = getDurationToTime(time);
+       int realDuration = getDurationToTime(time);
         Double netBasalAmount = 0d;
 
         if (realDuration > 0) {
@@ -154,7 +188,7 @@ public class TemporaryBasal implements Interval {
                 // find middle of the interval
                 Long calcdate = (long) (date + j * tempBolusSpacing * 60 * 1000 + 0.5d * tempBolusSpacing * 60 * 1000);
 
-                Double basalRate = profile.getBasal(NSProfile.secondsFromMidnight(calcdate));
+                Double basalRate = profile.getBasal(calcdate);
 
                 if (basalRate == null)
                     continue;
@@ -205,16 +239,16 @@ public class TemporaryBasal implements Interval {
     public double tempBasalConvertedToAbsolute(long time) {
         if (isAbsolute) return absoluteRate;
         else {
-            NSProfile profile = ConfigBuilderPlugin.getActiveProfile().getProfile();
-            return profile.getBasal(NSProfile.secondsFromMidnight(time)) * percentRate / 100;
+             return MainApp.getConfigBuilder().getProfile(time).getBasal(time) * percentRate / 100;
         }
     }
 
-    public String log() {
+    public String toString() {
         return "TemporaryBasal{" +
                 "date=" + date +
                 ", date=" + DateUtil.dateAndTimeString(date) +
                 ", isValid=" + isValid +
+                ", pumpId=" + pumpId +
                 ", _id=" + _id +
                 ", percentRate=" + percentRate +
                 ", absoluteRate=" + absoluteRate +
@@ -223,7 +257,7 @@ public class TemporaryBasal implements Interval {
                 '}';
     }
 
-    public String toString() {
+    public String toStringFull() {
         if (isAbsolute) {
             return DecimalFormatter.to2Decimal(absoluteRate) + "U/h @" +
                     DateUtil.timeString(date) +

@@ -4,6 +4,8 @@ package info.nightscout.androidaps.db;
  * Created by mike on 21.05.2017.
  */
 
+import android.graphics.Color;
+
 import com.j256.ormlite.field.DatabaseField;
 import com.j256.ormlite.table.DatabaseTable;
 
@@ -11,14 +13,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Date;
+import java.util.Objects;
 
 import info.nightscout.androidaps.Constants;
+import info.nightscout.androidaps.MainApp;
 import info.nightscout.androidaps.data.Iob;
 import info.nightscout.androidaps.data.IobTotal;
+import info.nightscout.androidaps.data.Profile;
 import info.nightscout.androidaps.interfaces.InsulinInterface;
 import info.nightscout.androidaps.interfaces.Interval;
 import info.nightscout.androidaps.plugins.ConfigBuilder.ConfigBuilderPlugin;
-import info.nightscout.androidaps.plugins.NSClientInternal.data.NSProfile;
+import info.nightscout.androidaps.plugins.Overview.graphExtensions.DataPointWithLabelInterface;
+import info.nightscout.androidaps.plugins.Overview.graphExtensions.PointsWithLabelGraphSeries;
 import info.nightscout.utils.DateUtil;
 import info.nightscout.utils.DecimalFormatter;
 import info.nightscout.utils.Round;
@@ -28,7 +34,7 @@ import info.nightscout.utils.Round;
  */
 
 @DatabaseTable(tableName = DatabaseHelper.DATABASE_EXTENDEDBOLUSES)
-public class ExtendedBolus implements Interval {
+public class ExtendedBolus implements Interval, DataPointWithLabelInterface {
     private static Logger log = LoggerFactory.getLogger(ExtendedBolus.class);
 
     @DatabaseField(id = true)
@@ -36,6 +42,9 @@ public class ExtendedBolus implements Interval {
 
     @DatabaseField
     public boolean isValid = true;
+
+    @DatabaseField(index = true)
+    public long pumpId = 0;
 
     @DatabaseField
     public int source = Source.NONE;
@@ -52,6 +61,35 @@ public class ExtendedBolus implements Interval {
     @DatabaseField
     public double dia = Constants.defaultDIA;
 
+    public ExtendedBolus() {
+    }
+
+    public ExtendedBolus(long date) {
+        this.date = date;
+    }
+
+    public boolean isEqual(ExtendedBolus other) {
+        if (date != other.date) {
+            return false;
+        }
+        if (durationInMinutes != other.durationInMinutes)
+            return false;
+        if (insulin != other.insulin)
+            return false;
+        if (pumpId != other.pumpId)
+            return false;
+        if (!Objects.equals(_id, other._id))
+            return false;
+        return true;
+    }
+
+    public void copyFrom(ExtendedBolus t) {
+        date = t.date;
+        _id = t._id;
+        durationInMinutes = t.durationInMinutes;
+        insulin = t.insulin;
+        pumpId = t.pumpId;
+    }
 
     // -------- Interval interface ---------
 
@@ -117,6 +155,7 @@ public class ExtendedBolus implements Interval {
                 ", date= " + DateUtil.dateAndTimeString(date) +
                 ", isValid=" + isValid +
                 ", _id= " + _id +
+                ", pumpId= " + pumpId +
                 ", insulin= " + insulin +
                 ", durationInMinutes= " + durationInMinutes +
                 "}";
@@ -132,7 +171,7 @@ public class ExtendedBolus implements Interval {
 
     public IobTotal iobCalc(long time) {
         IobTotal result = new IobTotal(time);
-        NSProfile profile = ConfigBuilderPlugin.getActiveProfile().getProfile();
+        Profile profile = MainApp.getConfigBuilder().getProfile(time);
         InsulinInterface insulinInterface = ConfigBuilderPlugin.getActiveInsulin();
 
         if (profile == null)
@@ -194,5 +233,55 @@ public class ExtendedBolus implements Interval {
     public String toStringMedium() {
         return "E " + DecimalFormatter.to2Decimal(absoluteRate()) + "U/h ("
                 + getRealDuration() + "/" + durationInMinutes + ") ";
+    }
+
+    public String toStringTotal() {
+        return DecimalFormatter.to2Decimal(insulin) + "U ( " +
+                DecimalFormatter.to2Decimal(absoluteRate()) + " U/h )";
+    }
+
+    // -------- DataPointWithLabelInterface --------
+    @Override
+    public double getX() {
+        return date;
+    }
+
+    // default when no sgv around available
+    private double yValue = 0;
+
+
+    @Override
+    public double getY() {
+        return yValue;
+    }
+
+    @Override
+    public void setY(double y) {
+        yValue = y;
+    }
+
+    @Override
+    public String getLabel() {
+        return toStringTotal();
+    }
+
+    @Override
+    public long getDuration() {
+        return durationInMinutes * 60 * 1000L;
+    }
+
+    @Override
+    public PointsWithLabelGraphSeries.Shape getShape() {
+        return PointsWithLabelGraphSeries.Shape.EXTENDEDBOLUS;
+    }
+
+    @Override
+    public float getSize() {
+        return 10;
+    }
+
+    @Override
+    public int getColor() {
+        return Color.CYAN;
     }
 }

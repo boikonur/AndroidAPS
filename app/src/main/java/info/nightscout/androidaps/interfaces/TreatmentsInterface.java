@@ -6,10 +6,12 @@ import info.nightscout.androidaps.data.DetailedBolusInfo;
 import info.nightscout.androidaps.data.IobTotal;
 import info.nightscout.androidaps.data.MealData;
 import info.nightscout.androidaps.db.ExtendedBolus;
+import info.nightscout.androidaps.db.ProfileSwitch;
 import info.nightscout.androidaps.db.TempTarget;
 import info.nightscout.androidaps.db.TemporaryBasal;
 import info.nightscout.androidaps.db.Treatment;
-import info.nightscout.utils.OverlappingIntervals;
+import info.nightscout.androidaps.data.OverlappingIntervals;
+import info.nightscout.androidaps.data.ProfileIntervals;
 
 /**
  * Created by mike on 14.06.2016.
@@ -33,8 +35,7 @@ public interface TreatmentsInterface {
     boolean isInHistoryRealTempBasalInProgress();
     TemporaryBasal getRealTempBasalFromHistory(long time);
 
-    void addToHistoryTempBasalStart(TemporaryBasal tempBasal);
-    void addToHistoryTempBasalStop(long time);
+    boolean addToHistoryTempBasal(TemporaryBasal tempBasal);
 
     // basal that can be faked by extended boluses
     boolean isTempBasalInProgress();
@@ -45,15 +46,19 @@ public interface TreatmentsInterface {
 
     boolean isInHistoryExtendedBoluslInProgress();
     ExtendedBolus getExtendedBolusFromHistory(long time);
-    void addToHistoryExtendedBolusStart(ExtendedBolus extendedBolus);
-    void addToHistoryExtendedBolusStop(long time);
     OverlappingIntervals<ExtendedBolus> getExtendedBolusesFromHistory();
 
-    void addTreatmentToHistory(DetailedBolusInfo detailedBolusInfo);
+    boolean addToHistoryExtendedBolus(ExtendedBolus extendedBolus);
+
+    boolean addToHistoryTreatment(DetailedBolusInfo detailedBolusInfo);
 
     TempTarget getTempTargetFromHistory(long time);
     OverlappingIntervals<TempTarget> getTempTargetsFromHistory();
 
-    long oldestDataAvaialable();
+    ProfileSwitch getProfileSwitchFromHistory(long time);
+    ProfileIntervals<ProfileSwitch> getProfileSwitchesFromHistory();
+    void addToHistoryProfileSwitch(ProfileSwitch profileSwitch);
+
+    long oldestDataAvailable();
 
 }
