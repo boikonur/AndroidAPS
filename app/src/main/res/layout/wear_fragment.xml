@@ -2,7 +2,8 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context="info.nightscout.androidaps.plugins.Wear.WearFragment">
+    android:paddingTop="2dp"
+    tools:context=".plugins.general.wear.WearFragment">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -10,7 +11,7 @@
         android:orientation="vertical">
 
         <Button
-            android:id="@+id/wear_resend"
+            android:id="@+id/resend"
             style="?android:attr/buttonStyle"
             android:layout_width="fill_parent"
             android:layout_height="wrap_content"
@@ -23,7 +24,7 @@
             android:textColor="@color/colorTreatmentButton" />
 
         <Button
-            android:id="@+id/wear_opensettings"
+            android:id="@+id/opensettings"
             style="?android:attr/buttonStyle"
             android:layout_width="fill_parent"
             android:layout_height="wrap_content"

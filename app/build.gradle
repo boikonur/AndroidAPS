@@ -1,23 +1,32 @@
 buildscript {
     repositories {
-        maven { url 'https://maven.fabric.io/public' }
+        maven { url "https://plugins.gradle.org/m2/" } // jacoco 0.2
     }
 
     dependencies {
-        classpath 'io.fabric.tools:gradle:1.+'
+        //classpath 'com.dicedmelon.gradle:jacoco-android:0.1.4'
+        classpath 'com.hiya:jacoco-android:0.2'
     }
 }
 apply plugin: 'com.android.application'
-apply plugin: 'io.fabric'
+apply plugin: 'kotlin-android'
+apply plugin: 'kotlin-kapt'
+apply plugin: 'com.google.gms.google-services'
+//apply plugin: 'jacoco-android'
+apply plugin: 'com.hiya.jacoco-android'
+apply plugin: 'com.google.firebase.crashlytics'
+
+jacoco {
+    toolVersion = "0.8.3"
+}
 
 repositories {
-    maven { url 'https://maven.fabric.io/public' }
+    mavenCentral()
+    google()
 }
 
 def generateGitBuild = { ->
-
-    StringBuilder stringBuilder = new StringBuilder();
-    stringBuilder.append('"')
+    StringBuilder stringBuilder = new StringBuilder()
     try {
         def stdout = new ByteArrayOutputStream()
         exec {
@@ -29,106 +38,188 @@ def generateGitBuild = { ->
     } catch (ignored) {
         stringBuilder.append('NoGitSystemAvailable')
     }
-    stringBuilder.append('-')
-    stringBuilder.append((new Date()).format('yyyy.MM.dd'))
-    stringBuilder.append('"')
     return stringBuilder.toString()
 }
 
+def generateGitRemote = { ->
+    StringBuilder stringBuilder = new StringBuilder()
+    try {
+        def stdout = new ByteArrayOutputStream()
+        exec {
+            commandLine 'git', 'remote', 'get-url', 'origin'
+            standardOutput = stdout
+        }
+        String commitObject = stdout.toString().trim()
+        stringBuilder.append(commitObject)
+    } catch (ignored) {
+        stringBuilder.append('NoGitSystemAvailable')
+    }
+    return stringBuilder.toString()
+}
+
+def generateDate = { ->
+    StringBuilder stringBuilder = new StringBuilder()
+    stringBuilder.append((new Date()).format('yyyy.MM.dd-HH:mm'))
+    return stringBuilder.toString()
+}
+
+def isMaster = { ->
+    return !version.contains('-')
+}
+
+def gitAvailable = { ->
+    StringBuilder stringBuilder = new StringBuilder()
+    try {
+        def stdout = new ByteArrayOutputStream()
+        exec {
+            commandLine 'git', '--version'
+            standardOutput = stdout
+        }
+        String commitObject = stdout.toString().trim()
+        stringBuilder.append(commitObject)
+    } catch (ignored) {
+        return false // NoGitSystemAvailable
+    }
+    return !stringBuilder.toString().isEmpty()
+
+}
+
+def allCommitted = { ->
+    StringBuilder stringBuilder = new StringBuilder()
+    try {
+        def stdout = new ByteArrayOutputStream()
+        exec {
+            commandLine 'git', 'status', '-s'
+            standardOutput = stdout
+        }
+        // ignore all changes done in .idea/codeStyles
+        String cleanedList = stdout.toString().replaceAll(/(?m)^\s*(M|A|D|\?\?)\s*.*?\.idea\/codeStyles\/.*?\s*$/, "")
+        // ignore all files added to project dir but not staged/known to GIT
+        cleanedList = cleanedList.replaceAll(/(?m)^\s*(\?\?)\s*.*?\s*$/, "")
+        stringBuilder.append(cleanedList.trim())
+    } catch (ignored) {
+        return false // NoGitSystemAvailable
+    }
+    return stringBuilder.toString().isEmpty()
+}
+
+tasks.matching { it instanceof Test }.all {
+    testLogging.events = ["failed", "skipped", "started"]
+    testLogging.exceptionFormat = "full"
+}
+
 android {
-    compileSdkVersion 23
-    buildToolsVersion "25.0.2"
+    compileSdkVersion 28
+    ndkVersion "21.1.6352462"
 
     defaultConfig {
-        applicationId "info.nightscout.androidaps"
-        minSdkVersion 21
-        targetSdkVersion 23
+        minSdkVersion 26
+        targetSdkVersion 28
+        multiDexEnabled true
         versionCode 1500
-        version "1.5d"
+        version "2.8.2.1-dev-b"
         buildConfigField "String", "VERSION", '"' + version + '"'
-        buildConfigField "String", "BUILDVERSION", generateGitBuild()
+        buildConfigField "String", "BUILDVERSION", '"' + generateGitBuild() + '-' + generateDate() + '"'
+        buildConfigField "String", "REMOTE", '"' + generateGitRemote() + '"'
+        buildConfigField "String", "HEAD", '"' + generateGitBuild() + '"'
+        buildConfigField "String", "COMMITTED", '"' + allCommitted() + '"'
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // if you change minSdkVersion to less than 11, you need to change executeTask for wear
+
+        ndk {
+            moduleName "BleCommandUtil"
+        }
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+    buildFeatures {
+        viewBinding true
     }
     lintOptions {
+        checkReleaseBuilds false
         disable 'MissingTranslation'
+        disable 'ExtraTranslation'
     }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
-    }
-    productFlavors {
-        flavorDimensions "standard", "wear"
-        full {
-            dimension "standard"
-            resValue "string", "app_name", "AndroidAPS"
-            versionName version
-            manifestPlaceholders = [
-                    appIcon: "@mipmap/blueowl"
-            ]
-            buildConfigField "boolean", "APS", "true"
-            buildConfigField "boolean", "PUMPDRIVERS", "true"
-            buildConfigField "boolean", "NSCLIENTOLNY", "false"
-            buildConfigField "boolean", "CLOSEDLOOP", "true"
+        debug {
+            testCoverageEnabled(project.hasProperty('coverage'))
         }
-        openloop {
+        firebaseDisable {
+            System.setProperty("disableFirebase", "true")
+            ext.enableCrashlytics = false
+        }
+    }
+    flavorDimensions "standard"
+    productFlavors {
+        full {
+            applicationId "info.nightscout.androidaps"
             dimension "standard"
             resValue "string", "app_name", "AndroidAPS"
             versionName version
             manifestPlaceholders = [
-                    appIcon: "@mipmap/blueowl"
+                    appIcon     : "@mipmap/ic_launcher",
+                    appIconRound: "@mipmap/ic_launcher_round"
             ]
-            buildConfigField "boolean", "APS", "true"
-            buildConfigField "boolean", "PUMPDRIVERS", "true"
-            buildConfigField "boolean", "NSCLIENTOLNY", "false"
-            buildConfigField "boolean", "CLOSEDLOOP", "false"
         }
         pumpcontrol {
+            applicationId "info.nightscout.aapspumpcontrol"
             dimension "standard"
-            resValue "string", "app_name", "AndroidAPS"
-            versionName version
+            resValue "string", "app_name", "Pumpcontrol"
+            versionName version + "-pumpcontrol"
             manifestPlaceholders = [
-                    appIcon: "@mipmap/blueowl"
+                    appIcon     : "@mipmap/ic_pumpcontrol",
+                    appIconRound: "@null"
             ]
-            buildConfigField "boolean", "APS", "false"
-            buildConfigField "boolean", "PUMPDRIVERS", "true"
-            buildConfigField "boolean", "NSCLIENTOLNY", "false"
-            buildConfigField "boolean", "CLOSEDLOOP", "false"
         }
         nsclient {
+            applicationId "info.nightscout.nsclient"
             dimension "standard"
             resValue "string", "app_name", "NSClient"
             versionName version + "-nsclient"
             manifestPlaceholders = [
-                    appIcon: "@mipmap/yellowowl"
+                    appIcon     : "@mipmap/ic_yellowowl",
+                    appIconRound: "@null"
             ]
-            buildConfigField "boolean", "APS", "false"
-            buildConfigField "boolean", "PUMPDRIVERS", "false"
-            buildConfigField "boolean", "NSCLIENTOLNY", "true"
-            buildConfigField "boolean", "CLOSEDLOOP", "false"
         }
-        wear {
-            dimension "wear"
-            buildConfigField "boolean", "WEAR", "true"
-            buildConfigField "boolean", "WEAR_CONTROL", "false"
-
-        }
-        wearcontrol {
-            dimension "wear"
-            buildConfigField "boolean", "WEAR", "true"
-            buildConfigField "boolean", "WEAR_CONTROL", "true"
-        }
-        nowear {
-            dimension "wear"
-            buildConfigField "boolean", "WEAR", "false"
-            buildConfigField "boolean", "WEAR_CONTROL", "false"
+        nsclient2 {
+            applicationId "info.nightscout.nsclient2"
+            dimension "standard"
+            resValue "string", "app_name", "NSClient2"
+            versionName version + "-nsclient"
+            manifestPlaceholders = [
+                    appIcon     : "@mipmap/ic_yellowowl",
+                    appIconRound: "@null"
+            ]
         }
     }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    testOptions {
+        unitTests {
+            returnDefaultValues = true
+            includeAndroidResources = true
+
+            all {
+                maxParallelForks = 10
+                forkEvery = 20
+            }
+        }
+    }
+
+    useLibrary "org.apache.http.legacy"
+
 }
 
 allprojects {
     repositories {
-        jcenter()
         flatDir {
             dirs 'libs'
         }
@@ -136,51 +227,94 @@ allprojects {
 }
 
 dependencies {
-    wearWearApp project(path: ':wear', configuration: 'restrictedRelease')
-    wearcontrolWearApp project(path: ':wear', configuration: 'fullRelease')
+    wearApp project(':wear')
 
-    compile fileTree(include: ['*.jar'], dir: 'libs')
-    compile('com.crashlytics.sdk.android:crashlytics:2.6.7@aar') {
-        transitive = true;
-    }
-    compile('com.crashlytics.sdk.android:answers:1.3.12@aar') {
-        transitive = true;
-    }
+    implementation project(':core')
+    implementation project(':database')
+    implementation project(':dana')
+    implementation project(':danars')
+    implementation project(':danar')
+    implementation project(':rileylink')
+    implementation project(':medtronic')
+    implementation project(':omnipod-eros')
+    implementation project(':omnipod-dash')
 
-    compile 'com.android.support:appcompat-v7:23.4.0'
-    compile 'com.android.support:support-v4:23.4.0'
-    compile 'com.android.support:cardview-v7:23.4.0'
-    compile 'com.android.support:recyclerview-v7:23.4.0'
-    compile 'com.android.support:gridlayout-v7:23.4.0'
-    compile "com.android.support:design:23.4.0"
-    compile "com.android.support:percent:23.4.0"
-    compile 'com.wdullaer:materialdatetimepicker:2.3.0'
-    compile 'com.squareup:otto:1.3.7'
-    compile 'com.j256.ormlite:ormlite-core:4.46'
-    compile 'com.j256.ormlite:ormlite-android:4.46'
-    compile('com.github.tony19:logback-android-classic:1.1.1-6') {
-        exclude group: 'com.google.android', module: 'android'
-    }
-    compile 'org.slf4j:slf4j-api:1.7.12'
-    compile 'com.jjoe64:graphview:4.0.1'
-    compile 'com.eclipsesource.j2v8:j2v8:3.1.6@aar'
-    compile 'com.joanzapata.iconify:android-iconify-fontawesome:2.1.1'
-    compile 'com.google.android.gms:play-services-wearable:7.5.0'
-    compile 'junit:junit:4.12'
-    testCompile 'org.json:json:20140107'
-    testCompile 'org.mockito:mockito-core:2.7.22'
-    androidTestCompile 'org.mockito:mockito-core:2.7.22'
-    androidTestCompile 'com.google.dexmaker:dexmaker:1.2'
-    androidTestCompile 'com.google.dexmaker:dexmaker-mockito:1.2'
-    compile(name: 'android-edittext-validator-v1.3.4-mod', ext: 'aar')
-    compile ('com.google.android:flexbox:0.3.0') {
-        exclude group: 'com.android.support'
-    }
-    compile('io.socket:socket.io-client:0.8.3') {
-        // excluding org.json which is provided by Android
-        exclude group: 'org.json', module: 'json'
-    }
-    compile 'com.google.code.gson:gson:2.7'
-    compile 'com.google.guava:guava:20.0'
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
 
+    testImplementation "junit:junit:$junit_version"
+    testImplementation 'org.json:json:20201115'
+    testImplementation "org.mockito:mockito-core:${mockitoVersion}"
+    testImplementation "org.powermock:powermock-api-mockito2:${powermockVersion}"
+    testImplementation "org.powermock:powermock-module-junit4-rule-agent:${powermockVersion}"
+    testImplementation "org.powermock:powermock-module-junit4-rule:${powermockVersion}"
+    testImplementation "org.powermock:powermock-module-junit4:${powermockVersion}"
+    testImplementation "joda-time:joda-time:$jodatime_version"
+    testImplementation('com.google.truth:truth:1.1.2') {
+        exclude group: "com.google.guava", module: "guava"
+    }
+    testImplementation "org.skyscreamer:jsonassert:1.5.0"
+    testImplementation "org.hamcrest:hamcrest-all:1.3"
+
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0-alpha04'
+    androidTestImplementation "androidx.test.ext:junit:$androidx_junit"
+    androidTestImplementation "androidx.test:rules:$androidx_rules"
+
+    /* Dagger2 - We are going to use dagger.android which includes
+    * support for Activity and fragment injection so we need to include
+    * the following dependencies */
+
+
+    annotationProcessor "com.google.dagger:dagger-compiler:$dagger_version"
+    annotationProcessor "com.google.dagger:dagger-android-processor:$dagger_version"
+    kapt "com.google.dagger:dagger-android-processor:$dagger_version"
+
+    /* Dagger2 - default dependency */
+    kapt "com.google.dagger:dagger-compiler:$dagger_version"
+
+    androidTestImplementation 'androidx.test.uiautomator:uiautomator:2.2.0'
 }
+
+/*
+// Run 'adb' shell command to clear application data of main app for 'debug' variant
+task clearMainAppData(type: Exec) {
+    // we have to iterate to find the 'debug' variant to obtain a variant reference
+    android.applicationVariants.all { variant ->
+        if (variant.name == "fullDebug") {
+            def applicationId = [variant.mergedFlavor.applicationId, variant.buildType.applicationIdSuffix].findAll().join()
+            def clearDataCommand = ['adb', 'shell', 'pm', 'clear', applicationId]
+            println "Clearing application data of ${variant.name} variant: [${clearDataCommand}]"
+            def stdout = new ByteArrayOutputStream()
+            exec {
+                commandLine clearDataCommand
+                standardOutput = stdout
+            }
+            String result = stdout.toString().trim()
+            if (!result.startsWith("Success")) {
+                println result
+                throw new GradleException(clearDataCommand.join(" "))
+            }
+        }
+    }
+}
+// Clear Application Data (once) before running instrumentation test
+tasks.whenTaskAdded { task ->
+    // Both of these targets are equivalent today, although in future connectedCheck
+    // will also include connectedUiAutomatorTest (not implemented yet)
+    if(task.name == "connectedAndroidTest" || task.name == "connectedCheck"){
+        task.dependsOn(clearMainAppData)
+    }
+}
+*/
+
+printf('--------------\n')
+printf('isMaster: %s\n', isMaster().toString())
+printf('gitAvailable: %s\n', gitAvailable().toString())
+printf('allCommitted: %s\n', allCommitted().toString())
+printf('--------------\n')
+if (isMaster() && !gitAvailable()) {
+    throw new GradleException('GIT system is not available. On Windows try to run Android Studio as an Administrator. Check if GIT is installed and Studio have permissions to use it')
+}
+if (isMaster() && !allCommitted()) {
+    throw new GradleException('There are uncommitted changes. Clone sources again as described in wiki and do not allow gradle update')
+}
+

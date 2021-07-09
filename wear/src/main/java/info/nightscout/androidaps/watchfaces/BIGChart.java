@@ -15,12 +15,14 @@ import android.graphics.Rect;
 import android.graphics.Shader;
 import android.os.Bundle;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.preference.PreferenceManager;
-import android.support.v4.content.ContextCompat;
-import android.support.v4.content.LocalBroadcastManager;
+import androidx.core.content.ContextCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import android.support.wearable.view.WatchViewStub;
 import android.support.wearable.watchface.WatchFaceStyle;
 import android.text.format.DateFormat;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Display;
 import android.view.LayoutInflater;
@@ -31,18 +33,18 @@ import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import com.google.android.gms.wearable.DataMap;
-import com.ustwo.clockwise.wearable.WatchFace;
 import com.ustwo.clockwise.common.WatchFaceTime;
 import com.ustwo.clockwise.common.WatchMode;
 import com.ustwo.clockwise.common.WatchShape;
+import com.ustwo.clockwise.wearable.WatchFace;
 
 import java.util.ArrayList;
-import java.util.Date;
 
+import info.nightscout.androidaps.R;
 import info.nightscout.androidaps.data.BasalWatchData;
 import info.nightscout.androidaps.data.BgWatchData;
+import info.nightscout.androidaps.data.BolusWatchData;
 import info.nightscout.androidaps.data.ListenerService;
-import info.nightscout.androidaps.R;
 import info.nightscout.androidaps.data.TempWatchData;
 import info.nightscout.androidaps.interaction.menus.MainMenuActivity;
 import lecho.lib.hellocharts.view.LineChartView;
@@ -52,6 +54,7 @@ import lecho.lib.hellocharts.view.LineChartView;
  */
 public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPreferenceChangeListener {
     public final static IntentFilter INTENT_FILTER;
+    public static final int SCREENSIZE_SMALL = 280;
     public TextView mTime, mSgv, mTimestamp, mDelta, mAvgDelta;
     public RelativeLayout mRelativeLayout;
     public long sgvLevel = 0;
@@ -63,15 +66,20 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
     public int gridColour = Color.WHITE;
     public int basalBackgroundColor = Color.BLUE;
     public int basalCenterColor = Color.BLUE;
+    public int bolusColor = Color.MAGENTA;
+    public int carbsColor = Color.GREEN;
     public int pointSize = 2;
     public boolean lowResMode = false;
     public boolean layoutSet = false;
     public BgGraphBuilder bgGraphBuilder;
     public LineChartView chart;
-    public double datetime;
+    public long datetime;
     public ArrayList<BgWatchData> bgDataList = new ArrayList<>();
     public ArrayList<TempWatchData> tempWatchDataList = new ArrayList<>();
     public ArrayList<BasalWatchData> basalWatchDataList = new ArrayList<>();
+    public ArrayList<BolusWatchData> bolusWatchDataList = new ArrayList<>();
+    public ArrayList<BgWatchData> predictionList = new ArrayList<>();
+
     public PowerManager.WakeLock wakeLock;
     public View layoutView;
     private final Point displaySize = new Point();
@@ -87,9 +95,11 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
     private String batteryString = "--";
     private String sgvString = "--";
     private String externalStatusString = "no status";
+    private String cobString = "";
+
     private TextView statusView;
-    private long chartTapTime = 0l;
-    private long sgvTapTime = 0l;
+    private long chartTapTime = 0L;
+    private long sgvTapTime = 0L;
 
     @Override
     public void onCreate() {
@@ -97,7 +107,7 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
         Display display = ((WindowManager) getSystemService(Context.WINDOW_SERVICE))
                 .getDefaultDisplay();
         display.getSize(displaySize);
-        wakeLock = ((PowerManager) getSystemService(Context.POWER_SERVICE)).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Clock");
+        wakeLock = ((PowerManager) getSystemService(Context.POWER_SERVICE)).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AndroidAPS:BIGChart");
 
         specW = View.MeasureSpec.makeMeasureSpec(displaySize.x,
                 View.MeasureSpec.EXACTLY);
@@ -107,7 +117,12 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
                 .getDefaultSharedPreferences(this);
         sharedPrefs.registerOnSharedPreferenceChangeListener(this);
         LayoutInflater inflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-        layoutView = inflater.inflate(R.layout.activity_bigchart, null);
+        DisplayMetrics metrics = getResources().getDisplayMetrics();
+        if(metrics.widthPixels < SCREENSIZE_SMALL || metrics.heightPixels < SCREENSIZE_SMALL){
+            layoutView = inflater.inflate(R.layout.activity_bigchart_small, null);
+        } else {
+            layoutView = inflater.inflate(R.layout.activity_bigchart, null);
+        }
         performViewSetup();
     }
 
@@ -118,7 +133,7 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
     }
 
     public void performViewSetup() {
-        final WatchViewStub stub = (WatchViewStub) layoutView.findViewById(R.id.watch_view_stub);
+        final WatchViewStub stub = layoutView.findViewById(R.id.watch_view_stub);
         IntentFilter messageFilter = new IntentFilter(Intent.ACTION_SEND);
 
         messageReceiver = new MessageReceiver();
@@ -128,14 +143,14 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
         stub.setOnLayoutInflatedListener(new WatchViewStub.OnLayoutInflatedListener() {
             @Override
             public void onLayoutInflated(WatchViewStub stub) {
-                mTime = (TextView) stub.findViewById(R.id.watch_time);
-                mSgv = (TextView) stub.findViewById(R.id.sgv);
-                mTimestamp = (TextView) stub.findViewById(R.id.timestamp);
-                mDelta = (TextView) stub.findViewById(R.id.delta);
-                mAvgDelta = (TextView) stub.findViewById(R.id.avgdelta);
-                mRelativeLayout = (RelativeLayout) stub.findViewById(R.id.main_layout);
-                chart = (LineChartView) stub.findViewById(R.id.chart);
-                statusView = (TextView) stub.findViewById(R.id.aps_status);
+                mTime = stub.findViewById(R.id.watch_time);
+                mSgv = stub.findViewById(R.id.sgv);
+                mTimestamp = stub.findViewById(R.id.timestamp);
+                mDelta = stub.findViewById(R.id.delta);
+                mAvgDelta = stub.findViewById(R.id.avgdelta);
+                mRelativeLayout = stub.findViewById(R.id.main_layout);
+                chart = stub.findViewById(R.id.chart);
+                statusView = stub.findViewById(R.id.aps_status);
                 layoutSet = true;
                 showAgeAndStatus();
                 mRelativeLayout.measure(specW, specH);
@@ -178,7 +193,7 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
     private void changeChartTimeframe() {
         int timeframe = Integer.parseInt(sharedPrefs.getString("chart_timeframe", "3"));
         timeframe = (timeframe%5) + 1;
-        sharedPrefs.edit().putString("chart_timeframe", "" + timeframe).commit();
+        sharedPrefs.edit().putString("chart_timeframe", "" + timeframe).apply();
     }
 
     protected void onWatchModeChanged(WatchMode watchMode) {
@@ -193,7 +208,7 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
     }
 
     private boolean isLowRes(WatchMode watchMode) {
-        return (watchMode == WatchMode.LOW_BIT) || (watchMode == WatchMode.LOW_BIT_BURN_IN) || (watchMode == WatchMode.LOW_BIT_BURN_IN);
+        return (watchMode == WatchMode.LOW_BIT) || (watchMode == WatchMode.LOW_BIT_BURN_IN);
     }
 
 
@@ -280,7 +295,7 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
                 wakeLock.acquire(50);
                 sgvLevel = dataMap.getLong("sgvLevel");
                 batteryLevel = dataMap.getInt("batteryLevel");
-                datetime = dataMap.getDouble("timestamp");
+                datetime = dataMap.getLong("timestamp");
                 rawString = dataMap.getString("rawString");
                 sgvString = dataMap.getString("sgvString");
                 batteryString = dataMap.getString("battery");
@@ -340,6 +355,8 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
                 DataMap dataMap = DataMap.fromBundle(bundle);
                 wakeLock.acquire(50);
                 externalStatusString = dataMap.getString("externalStatusString");
+                cobString = dataMap.getString("cob");
+
 
                 showAgeAndStatus();
 
@@ -391,6 +408,30 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
                 basalWatchDataList.add(bwd);
             }
         }
+        ArrayList<DataMap> boluses = dataMap.getDataMapArrayList("boluses");
+        if (boluses != null) {
+            bolusWatchDataList = new ArrayList<>();
+            for (DataMap bolus : boluses) {
+                BolusWatchData bwd = new BolusWatchData();
+                bwd.date = bolus.getLong("date");
+                bwd.bolus = bolus.getDouble("bolus");
+                bwd.carbs = bolus.getDouble("carbs");
+                bwd.isSMB = bolus.getBoolean("isSMB");
+                bwd.isValid = bolus.getBoolean("isValid");
+                bolusWatchDataList.add(bwd);
+            }
+        }
+        ArrayList<DataMap> predictions = dataMap.getDataMapArrayList("predictions");
+        if (boluses != null) {
+            predictionList = new ArrayList<>();
+            for (DataMap prediction : predictions) {
+                BgWatchData bwd = new BgWatchData();
+                bwd.timestamp = prediction.getLong("timestamp");
+                bwd.sgv = prediction.getDouble("sgv");
+                bwd.color = prediction.getInt("color");
+                predictionList.add(bwd);
+            }
+        }
     }
 
     private void showAgeAndStatus() {
@@ -409,7 +450,12 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
         }
 
         if(showStatus){
-            statusView.setText(externalStatusString);
+            String status = externalStatusString;
+            if (sharedPrefs.getBoolean("show_cob", true)) {
+                status = externalStatusString + " " + cobString;
+            }
+
+            statusView.setText(status);
             statusView.setVisibility(View.VISIBLE);
         } else {
             statusView.setVisibility(View.GONE);
@@ -473,11 +519,7 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
                 setIsAnimated(true);
                 for (int i = 0; i <= 8 * 1000 / 40; i++) {
                     updateRainbow();
-                    try {
-                        Thread.sleep(40);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
+                    SystemClock.sleep(40);
                 }
                 mSgv.getPaint().setShader(null);
                 setIsAnimated(false);
@@ -607,14 +649,16 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
                 double sgv = entry.getDouble("sgvDouble");
                 double high = entry.getDouble("high");
                 double low = entry.getDouble("low");
-                double timestamp = entry.getDouble("timestamp");
-                bgDataList.add(new BgWatchData(sgv, high, low, timestamp));
+                long timestamp = entry.getLong("timestamp");
+                int color = entry.getInt("color", 0);
+                bgDataList.add(new BgWatchData(sgv, high, low, timestamp, color));
             }
         } else {
             double sgv = dataMap.getDouble("sgvDouble");
             double high = dataMap.getDouble("high");
             double low = dataMap.getDouble("low");
-            double timestamp = dataMap.getDouble("timestamp");
+            long timestamp = dataMap.getLong("timestamp");
+            int color = dataMap.getInt("color", 0);
 
             final int size = bgDataList.size();
             if (size > 0) {
@@ -622,7 +666,7 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
                     return; // Ignore duplicates.
             }
 
-            bgDataList.add(new BgWatchData(sgv, high, low, timestamp));
+            bgDataList.add(new BgWatchData(sgv, high, low, timestamp, color));
         }
 
         for (int i = 0; i < bgDataList.size(); i++) {
@@ -637,9 +681,9 @@ public class BIGChart extends WatchFace implements SharedPreferences.OnSharedPre
         if(bgDataList.size() > 0) { //Dont crash things just because we dont have values, people dont like crashy things
             int timeframe = Integer.parseInt(sharedPrefs.getString("chart_timeframe", "3"));
             if (lowResMode) {
-                bgGraphBuilder = new BgGraphBuilder(getApplicationContext(), bgDataList, tempWatchDataList, basalWatchDataList, pointSize, midColor, gridColour, basalBackgroundColor, basalCenterColor, timeframe);
+                bgGraphBuilder = new BgGraphBuilder(getApplicationContext(), bgDataList, predictionList, tempWatchDataList, basalWatchDataList, bolusWatchDataList, pointSize, midColor, gridColour, basalBackgroundColor, basalCenterColor, bolusColor, carbsColor, timeframe);
             } else {
-                bgGraphBuilder = new BgGraphBuilder(getApplicationContext(), bgDataList, tempWatchDataList, basalWatchDataList, pointSize, highColor, lowColor, midColor, gridColour, basalBackgroundColor, basalCenterColor, timeframe);
+                bgGraphBuilder = new BgGraphBuilder(getApplicationContext(), bgDataList, predictionList, tempWatchDataList, basalWatchDataList, bolusWatchDataList, pointSize, highColor, lowColor, midColor, gridColour, basalBackgroundColor, basalCenterColor, bolusColor, carbsColor, timeframe);
             }
 
             chart.setLineChartData(bgGraphBuilder.lineData());

@@ -22,7 +22,7 @@ public abstract class MenuListActivity extends Activity
 
     protected abstract String[] getElements();
 
-    protected abstract void doAction(int position);
+    protected abstract void doAction(String position);
 
     @Override
     protected void onPause(){
@@ -38,7 +38,7 @@ public abstract class MenuListActivity extends Activity
 
         // Get the list component from the layout of the activity
         WearableListView listView =
-                (WearableListView) findViewById(R.id.wearable_list);
+                findViewById(R.id.wearable_list);
 
         // Assign an adapter to the list
         listView.setAdapter(new Adapter(this, elements));
@@ -50,7 +50,7 @@ public abstract class MenuListActivity extends Activity
     // WearableListView click listener
     @Override
     public void onClick(WearableListView.ViewHolder v) {
-        Integer tag = (Integer) v.itemView.getTag();
+        String tag = (String) v.itemView.getTag();
         doAction(tag);
         //ActionsDefinitions.doAction(v.getAdapterPosition(), this);
         finish();
@@ -62,7 +62,7 @@ public abstract class MenuListActivity extends Activity
 
 
     private static final class Adapter extends WearableListView.Adapter {
-        private String[] mDataset;
+        private final String[] mDataset;
         private final Context mContext;
         private final LayoutInflater mInflater;
 
@@ -75,12 +75,12 @@ public abstract class MenuListActivity extends Activity
 
         // Provide a reference to the type of views you're using
         public static class ItemViewHolder extends WearableListView.ViewHolder {
-            private TextView textView;
+            private final TextView textView;
 
             public ItemViewHolder(View itemView) {
                 super(itemView);
                 // find the text view within the custom item's layout
-                textView = (TextView) itemView.findViewById(R.id.actionitem);
+                textView = itemView.findViewById(R.id.actionitem);
             }
         }
 
@@ -105,7 +105,7 @@ public abstract class MenuListActivity extends Activity
             // replace text contents
             view.setText(mDataset[position]);
             // replace list item's metadata
-            holder.itemView.setTag(position);
+            holder.itemView.setTag(mDataset[position]);
         }
 
         // Return the size of your dataset

@@ -1,7 +1,6 @@
 package info.nightscout.androidaps.interaction.actions;
 
 
-import android.app.Activity;
 import android.content.res.Resources;
 import android.os.Bundle;
 import android.support.wearable.view.DotsPageIndicator;
@@ -11,7 +10,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
-import android.widget.TextView;
 
 import java.text.DecimalFormat;
 
@@ -34,10 +32,10 @@ public class FillActivity extends ViewSelectorActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.grid_layout);
         final Resources res = getResources();
-        final GridViewPager pager = (GridViewPager) findViewById(R.id.pager);
+        final GridViewPager pager = findViewById(R.id.pager);
 
         pager.setAdapter(new MyGridViewPagerAdapter());
-        DotsPageIndicator dotsPageIndicator = (DotsPageIndicator) findViewById(R.id.page_indicator);
+        DotsPageIndicator dotsPageIndicator = findViewById(R.id.page_indicator);
         dotsPageIndicator.setPager(pager);
     }
 
@@ -63,20 +61,20 @@ public class FillActivity extends ViewSelectorActivity {
         @Override
         public Object instantiateItem(ViewGroup container, int row, int col) {
 
-            if(col == 0){
+            if (col == 0) {
                 final View view = getInflatedPlusMinusView(container);
                 double def = 0d;
-                if (editInsulin != null){
+                if (editInsulin != null) {
                     def = SafeParse.stringToDouble(editInsulin.editText.getText().toString());
                 }
                 editInsulin = new PlusMinusEditText(view, R.id.amountfield, R.id.plusbutton, R.id.minusbutton, def, 0d, 30d, 0.1d, new DecimalFormat("#0.0"), false);
-                setLabelToPlusMinusView(view, "insulin");
+                setLabelToPlusMinusView(view, getString(R.string.action_insulin));
                 container.addView(view);
                 return view;
             } else {
 
                 final View view = LayoutInflater.from(getApplicationContext()).inflate(R.layout.action_send_item, container, false);
-                final ImageView confirmbutton = (ImageView) view.findViewById(R.id.confirmbutton);
+                final ImageView confirmbutton = view.findViewById(R.id.confirmbutton);
                 confirmbutton.setOnClickListener(new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
@@ -84,7 +82,7 @@ public class FillActivity extends ViewSelectorActivity {
                         //check if it can happen that the fagment is never created that hold data?
                         // (you have to swipe past them anyways - but still)
 
-                        String actionstring = "fill " +SafeParse.stringToDouble(editInsulin.editText.getText().toString());
+                        String actionstring = "fill " + SafeParse.stringToDouble(editInsulin.editText.getText().toString());
                         ListenerService.initiateAction(FillActivity.this, actionstring);
                         finish();
                     }
@@ -98,12 +96,12 @@ public class FillActivity extends ViewSelectorActivity {
         public void destroyItem(ViewGroup container, int row, int col, Object view) {
             // Handle this to get the data before the view is destroyed?
             // Object should still be kept by this, just setup for reinit?
-            container.removeView((View)view);
+            container.removeView((View) view);
         }
 
         @Override
         public boolean isViewFromObject(View view, Object object) {
-            return view==object;
+            return view == object;
         }
 
 

@@ -1,299 +1,180 @@
 package info.nightscout.androidaps;
 
-import android.app.Application;
+import android.bluetooth.BluetoothDevice;
 import android.content.Intent;
-import android.content.res.Resources;
-import android.support.annotation.Nullable;
+import android.content.IntentFilter;
+import android.net.ConnectivityManager;
+import android.net.wifi.WifiManager;
 
-import com.crashlytics.android.Crashlytics;
-import com.crashlytics.android.answers.Answers;
-import com.crashlytics.android.answers.CustomEvent;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
+
 import com.j256.ormlite.android.apptools.OpenHelperManager;
-import com.squareup.otto.Bus;
-import com.squareup.otto.ThreadEnforcer;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import net.danlew.android.joda.JodaTimeAndroid;
 
-import java.util.ArrayList;
+import java.util.List;
 
+import javax.inject.Inject;
+
+import dagger.android.AndroidInjector;
+import dagger.android.DaggerApplication;
+import info.nightscout.androidaps.database.AppRepository;
+import info.nightscout.androidaps.database.transactions.VersionChangeTransaction;
+import info.nightscout.androidaps.db.CompatDBHelper;
 import info.nightscout.androidaps.db.DatabaseHelper;
-import info.nightscout.androidaps.interfaces.InsulinInterface;
+import info.nightscout.androidaps.db.StaticInjector;
+import info.nightscout.androidaps.dependencyInjection.DaggerAppComponent;
 import info.nightscout.androidaps.interfaces.PluginBase;
-import info.nightscout.androidaps.interfaces.PumpInterface;
-import info.nightscout.androidaps.plugins.Actions.ActionsFragment;
-import info.nightscout.androidaps.plugins.Careportal.CareportalFragment;
-import info.nightscout.androidaps.plugins.ConfigBuilder.ConfigBuilderFragment;
-import info.nightscout.androidaps.plugins.ConfigBuilder.ConfigBuilderPlugin;
-import info.nightscout.androidaps.plugins.ConstraintsObjectives.ObjectivesFragment;
-import info.nightscout.androidaps.plugins.ConstraintsSafety.SafetyPlugin;
-import info.nightscout.androidaps.plugins.InsulinFastacting.InsulinFastactingFragment;
-import info.nightscout.androidaps.plugins.InsulinFastactingProlonged.InsulinFastactingProlongedFragment;
-import info.nightscout.androidaps.plugins.IobCobCalculator.IobCobCalculatorPlugin;
-import info.nightscout.androidaps.plugins.Loop.LoopFragment;
-import info.nightscout.androidaps.plugins.NSClientInternal.NSClientInternalFragment;
-import info.nightscout.androidaps.plugins.OpenAPSAMA.OpenAPSAMAFragment;
-import info.nightscout.androidaps.plugins.OpenAPSMA.OpenAPSMAFragment;
-import info.nightscout.androidaps.plugins.Overview.OverviewFragment;
-import info.nightscout.androidaps.plugins.Persistentnotification.PersistentNotificationPlugin;
-import info.nightscout.androidaps.plugins.ProfileCircadianPercentage.CircadianPercentageProfileFragment;
-import info.nightscout.androidaps.plugins.ProfileLocal.LocalProfileFragment;
-import info.nightscout.androidaps.plugins.ProfileNS.NSProfileFragment;
-import info.nightscout.androidaps.plugins.ProfileSimple.SimpleProfileFragment;
-import info.nightscout.androidaps.plugins.PumpDanaR.DanaRFragment;
-import info.nightscout.androidaps.plugins.PumpDanaR.services.DanaRExecutionService;
-import info.nightscout.androidaps.plugins.PumpDanaRKorean.DanaRKoreanFragment;
-import info.nightscout.androidaps.plugins.PumpDanaRKorean.services.DanaRKoreanExecutionService;
-import info.nightscout.androidaps.plugins.PumpDanaRv2.DanaRv2Fragment;
-import info.nightscout.androidaps.plugins.PumpDanaRv2.services.DanaRv2ExecutionService;
-import info.nightscout.androidaps.plugins.PumpMDI.MDIPlugin;
-import info.nightscout.androidaps.plugins.PumpVirtual.VirtualPumpPlugin;
-import info.nightscout.androidaps.plugins.SensitivityAAPS.SensitivityAAPSPlugin;
-import info.nightscout.androidaps.plugins.SensitivityOref0.SensitivityOref0Plugin;
-import info.nightscout.androidaps.plugins.SensitivityWeightedAverage.SensitivityWeightedAveragePlugin;
-import info.nightscout.androidaps.plugins.SmsCommunicator.SmsCommunicatorFragment;
-import info.nightscout.androidaps.plugins.SourceGlimp.SourceGlimpPlugin;
-import info.nightscout.androidaps.plugins.SourceMM640g.SourceMM640gPlugin;
-import info.nightscout.androidaps.plugins.SourceNSClient.SourceNSClientPlugin;
-import info.nightscout.androidaps.plugins.SourceXdrip.SourceXdripPlugin;
-import info.nightscout.androidaps.plugins.Treatments.TreatmentsFragment;
-import info.nightscout.androidaps.plugins.Wear.WearFragment;
-import info.nightscout.androidaps.plugins.XDripStatusline.StatuslinePlugin;
+import info.nightscout.androidaps.logging.AAPSLogger;
+import info.nightscout.androidaps.logging.LTag;
+import info.nightscout.androidaps.plugins.configBuilder.ConfigBuilderPlugin;
+import info.nightscout.androidaps.plugins.configBuilder.PluginStore;
+import info.nightscout.androidaps.plugins.constraints.versionChecker.VersionCheckerUtils;
+import info.nightscout.androidaps.plugins.general.nsclient.NSUpload;
+import info.nightscout.androidaps.receivers.BTReceiver;
+import info.nightscout.androidaps.receivers.ChargingStateReceiver;
+import info.nightscout.androidaps.receivers.DataReceiver;
 import info.nightscout.androidaps.receivers.KeepAliveReceiver;
-import info.nightscout.utils.NSUpload;
-import io.fabric.sdk.android.Fabric;
+import info.nightscout.androidaps.receivers.NetworkChangeReceiver;
+import info.nightscout.androidaps.receivers.TimeDateOrTZChangeReceiver;
+import info.nightscout.androidaps.services.Intents;
+import info.nightscout.androidaps.utils.ActivityMonitor;
+import info.nightscout.androidaps.utils.locale.LocaleHelper;
+import info.nightscout.androidaps.utils.sharedPreferences.SP;
+import io.reactivex.disposables.CompositeDisposable;
 
+public class MainApp extends DaggerApplication {
 
-public class MainApp extends Application {
-    private static Logger log = LoggerFactory.getLogger(MainApp.class);
-    private static KeepAliveReceiver keepAliveReceiver;
+    static DatabaseHelper sDatabaseHelper = null;
 
-    private static Bus sBus;
-    private static MainApp sInstance;
-    public static Resources sResources;
+    private final CompositeDisposable disposable = new CompositeDisposable();
 
-    private static DatabaseHelper sDatabaseHelper = null;
-    private static ConfigBuilderPlugin sConfigBuilder = null;
+    @Inject PluginStore pluginStore;
+    @Inject AAPSLogger aapsLogger;
+    @Inject ActivityMonitor activityMonitor;
+    @Inject VersionCheckerUtils versionCheckersUtils;
+    @Inject SP sp;
+    @Inject NSUpload nsUpload;
+    @Inject Config config;
 
-    private static ArrayList<PluginBase> pluginsList = null;
+    @Inject ConfigBuilderPlugin configBuilderPlugin;
+    @Inject KeepAliveReceiver.KeepAliveManager keepAliveManager;
+    @Inject List<PluginBase> plugins;
+    @Inject CompatDBHelper compatDBHelper;
+    @Inject AppRepository repository;
+
+    @Inject StaticInjector staticInjector; // TODO avoid , here fake only to initialize
 
     @Override
     public void onCreate() {
         super.onCreate();
-        Fabric.with(this, new Crashlytics());
-        Fabric.with(this, new Answers());
-        Crashlytics.setString("BUILDVERSION", BuildConfig.BUILDVERSION);
-        log.info("Version: " + BuildConfig.VERSION_NAME);
-        log.info("BuildVersion: " + BuildConfig.BUILDVERSION);
 
-        Answers.getInstance().logCustom(new CustomEvent("AppStart"));
-
-        sBus = new Bus(ThreadEnforcer.ANY);
-        sInstance = this;
-        sResources = getResources();
-
-        if (pluginsList == null) {
-            pluginsList = new ArrayList<>();
-            // Register all tabs in app here
-            pluginsList.add(OverviewFragment.getPlugin());
-            pluginsList.add(IobCobCalculatorPlugin.getPlugin());
-            if (Config.ACTION) pluginsList.add(ActionsFragment.getPlugin());
-            pluginsList.add(InsulinFastactingFragment.getPlugin());
-            pluginsList.add(InsulinFastactingProlongedFragment.getPlugin());
-            pluginsList.add(SensitivityOref0Plugin.getPlugin());
-            pluginsList.add(SensitivityAAPSPlugin.getPlugin());
-            pluginsList.add(SensitivityWeightedAveragePlugin.getPlugin());
-            if (Config.DANAR) pluginsList.add(DanaRFragment.getPlugin());
-            if (Config.DANAR) pluginsList.add(DanaRKoreanFragment.getPlugin());
-            if (Config.DANARv2) pluginsList.add(DanaRv2Fragment.getPlugin());
-            pluginsList.add(CareportalFragment.getPlugin());
-            if (Config.MDI) pluginsList.add(MDIPlugin.getPlugin());
-            if (Config.VIRTUALPUMP) pluginsList.add(VirtualPumpPlugin.getInstance());
-            if (Config.LOOPENABLED) pluginsList.add(LoopFragment.getPlugin());
-            if (Config.OPENAPSENABLED) pluginsList.add(OpenAPSMAFragment.getPlugin());
-            if (Config.OPENAPSENABLED) pluginsList.add(OpenAPSAMAFragment.getPlugin());
-            pluginsList.add(NSProfileFragment.getPlugin());
-            if (Config.OTHERPROFILES) pluginsList.add(SimpleProfileFragment.getPlugin());
-            if (Config.OTHERPROFILES) pluginsList.add(LocalProfileFragment.getPlugin());
-            if (Config.OTHERPROFILES)
-                pluginsList.add(CircadianPercentageProfileFragment.getPlugin());
-            pluginsList.add(TreatmentsFragment.getPlugin());
-            if (Config.SAFETY) pluginsList.add(SafetyPlugin.getPlugin());
-            if (Config.APS) pluginsList.add(ObjectivesFragment.getPlugin());
-            if (!Config.NSCLIENT)
-                pluginsList.add(SourceXdripPlugin.getPlugin());
-            pluginsList.add(SourceNSClientPlugin.getPlugin());
-            if (!Config.NSCLIENT)
-                pluginsList.add(SourceMM640gPlugin.getPlugin());
-            if (!Config.NSCLIENT)
-                pluginsList.add(SourceGlimpPlugin.getPlugin());
-            if (Config.SMSCOMMUNICATORENABLED) pluginsList.add(SmsCommunicatorFragment.getPlugin());
-
-            if (Config.WEAR) pluginsList.add(WearFragment.getPlugin(this));
-            pluginsList.add(StatuslinePlugin.getPlugin(this));
-            pluginsList.add(new PersistentNotificationPlugin(this));
-            pluginsList.add(NSClientInternalFragment.getPlugin());
-
-            pluginsList.add(sConfigBuilder = ConfigBuilderFragment.getPlugin());
-
-            MainApp.getConfigBuilder().initialize();
-        }
-        NSUpload.uploadAppStart();
-
-        startKeepAliveService();
-
-        Thread t = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    Thread.sleep(5000);
-                } catch (InterruptedException e) {
-                }
-                PumpInterface pump = MainApp.getConfigBuilder();
-                if (pump != null)
-                    pump.refreshDataFromPump("Initialization");
+        aapsLogger.debug("onCreate");
+        LocaleHelper.INSTANCE.update(this);
+        sDatabaseHelper = OpenHelperManager.getHelper(this, DatabaseHelper.class);
+/*
+        Thread.setDefaultUncaughtExceptionHandler((thread, ex) -> {
+            if (ex instanceof InternalError) {
+                // usually the app trying to spawn a thread while being killed
+                return;
             }
+            aapsLogger.error("Uncaught exception crashing app", ex);
         });
-        t.start();
-    }
-
-    private void startKeepAliveService() {
-        if (keepAliveReceiver == null) {
-            keepAliveReceiver = new KeepAliveReceiver();
-            if (Config.DANAR) {
-                startService(new Intent(this, DanaRExecutionService.class));
-                startService(new Intent(this, DanaRKoreanExecutionService.class));
-                startService(new Intent(this, DanaRv2ExecutionService.class));
-            }
-            keepAliveReceiver.setAlarm(this);
+*/
+        String gitRemote = BuildConfig.REMOTE;
+        String commitHash = BuildConfig.HEAD;
+        if (gitRemote.contains("NoGitSystemAvailable")) {
+            gitRemote = null;
+            commitHash = null;
         }
+        disposable.add(repository.runTransaction(new VersionChangeTransaction(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE, gitRemote, commitHash)).subscribe());
+        disposable.add(compatDBHelper.dbChangeDisposable());
+
+        registerActivityLifecycleCallbacks(activityMonitor);
+
+        JodaTimeAndroid.init(this);
+
+        aapsLogger.debug("Version: " + BuildConfig.VERSION_NAME);
+        aapsLogger.debug("BuildVersion: " + BuildConfig.BUILDVERSION);
+        aapsLogger.debug("Remote: " + BuildConfig.REMOTE);
+
+        registerLocalBroadcastReceiver();
+
+        //trigger here to see the new version on app start after an update
+        versionCheckersUtils.triggerCheckVersion();
+
+        // Register all tabs in app here
+        pluginStore.setPlugins(plugins);
+        configBuilderPlugin.initialize();
+
+        nsUpload.uploadAppStart();
+
+        new Thread(() -> keepAliveManager.setAlarm(this)).start();
+        doMigrations();
     }
 
 
-    public void stopKeepAliveService() {
-        if (keepAliveReceiver != null)
-            keepAliveReceiver.cancelAlarm(this);
+    private void doMigrations() {
+        // set values for different builds
+        if (!sp.contains(R.string.key_ns_alarms))
+            sp.putBoolean(R.string.key_ns_alarms, config.getNSCLIENT());
+        if (!sp.contains(R.string.key_ns_announcements))
+            sp.putBoolean(R.string.key_ns_announcements, config.getNSCLIENT());
+        if (!sp.contains(R.string.key_language))
+            sp.putString(R.string.key_language, "default");
     }
 
-    public static Bus bus() {
-        return sBus;
+    @Override
+    protected AndroidInjector<? extends DaggerApplication> applicationInjector() {
+        return DaggerAppComponent
+                .builder()
+                .application(this)
+                .build();
     }
 
-    public static MainApp instance() {
-        return sInstance;
+    private void registerLocalBroadcastReceiver() {
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(Intents.ACTION_NEW_TREATMENT);
+        filter.addAction(Intents.ACTION_CHANGED_TREATMENT);
+        filter.addAction(Intents.ACTION_REMOVED_TREATMENT);
+        filter.addAction(Intents.ACTION_NEW_SGV);
+        filter.addAction(Intents.ACTION_NEW_PROFILE);
+        filter.addAction(Intents.ACTION_NEW_MBG);
+        filter.addAction(Intents.ACTION_NEW_CAL);
+        LocalBroadcastManager.getInstance(this).registerReceiver(new DataReceiver(), filter);
+
+        filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_TIME_CHANGED);
+        filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+        registerReceiver(new TimeDateOrTZChangeReceiver(), filter);
+
+        filter = new IntentFilter();
+        filter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
+        filter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
+        filter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
+        registerReceiver(new NetworkChangeReceiver(), filter);
+
+        filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_POWER_CONNECTED);
+        filter.addAction(Intent.ACTION_POWER_DISCONNECTED);
+        filter.addAction(Intent.ACTION_BATTERY_CHANGED);
+        registerReceiver(new ChargingStateReceiver(), filter);
+
+        filter = new IntentFilter();
+        filter.addAction(BluetoothDevice.ACTION_ACL_CONNECTED);
+        filter.addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);
+        registerReceiver(new BTReceiver(), filter);
     }
 
     public static DatabaseHelper getDbHelper() {
-        if (sDatabaseHelper == null) {
-            sDatabaseHelper = OpenHelperManager.getHelper(sInstance, DatabaseHelper.class);
-        }
         return sDatabaseHelper;
-    }
-
-    public static void closeDbHelper() {
-        if (sDatabaseHelper != null) {
-            sDatabaseHelper.close();
-            sDatabaseHelper = null;
-        }
-    }
-
-    public static ConfigBuilderPlugin getConfigBuilder() {
-        return sConfigBuilder;
-    }
-
-    public static ArrayList<PluginBase> getPluginsList() {
-        return pluginsList;
-    }
-
-    public static ArrayList<PluginBase> getSpecificPluginsList(int type) {
-        ArrayList<PluginBase> newList = new ArrayList<>();
-
-        if (pluginsList != null) {
-            for (PluginBase p : pluginsList) {
-                if (p.getType() == type)
-                    newList.add(p);
-            }
-        } else {
-            log.error("pluginsList=null");
-        }
-        return newList;
-    }
-
-    @Nullable
-    public static InsulinInterface getInsulinIterfaceById(int id) {
-        ArrayList<PluginBase> newList = new ArrayList<>();
-
-        if (pluginsList != null) {
-            for (PluginBase p : pluginsList) {
-                if (p.getType() == PluginBase.INSULIN && ((InsulinInterface) p).getId() == id)
-                    return (InsulinInterface) p;
-            }
-        } else {
-            log.error("InsulinInterface not found");
-        }
-        return null;
-    }
-
-    public static ArrayList<PluginBase> getSpecificPluginsVisibleInList(int type) {
-        ArrayList<PluginBase> newList = new ArrayList<>();
-
-        if (pluginsList != null) {
-            for (PluginBase p : pluginsList) {
-                if (p.getType() == type)
-                    if (p.showInList(type))
-                        newList.add(p);
-            }
-        } else {
-            log.error("pluginsList=null");
-        }
-        return newList;
-    }
-
-    public static ArrayList<PluginBase> getSpecificPluginsListByInterface(Class interfaceClass) {
-        ArrayList<PluginBase> newList = new ArrayList<>();
-
-        if (pluginsList != null) {
-            for (PluginBase p : pluginsList) {
-                if (p.getClass() != ConfigBuilderPlugin.class && interfaceClass.isAssignableFrom(p.getClass()))
-                    newList.add(p);
-            }
-        } else {
-            log.error("pluginsList=null");
-        }
-        return newList;
-    }
-
-    public static ArrayList<PluginBase> getSpecificPluginsVisibleInListByInterface(Class interfaceClass, int type) {
-        ArrayList<PluginBase> newList = new ArrayList<>();
-
-        if (pluginsList != null) {
-            for (PluginBase p : pluginsList) {
-                if (p.getClass() != ConfigBuilderPlugin.class && interfaceClass.isAssignableFrom(p.getClass()))
-                    if (p.showInList(type))
-                        newList.add(p);
-            }
-        } else {
-            log.error("pluginsList=null");
-        }
-        return newList;
-    }
-
-    @Nullable
-    public static PluginBase getSpecificPlugin(Class pluginClass) {
-        if (pluginsList != null) {
-            for (PluginBase p : pluginsList) {
-                if (p.getClass() == pluginClass)
-                    return p;
-            }
-        } else {
-            log.error("pluginsList=null");
-        }
-        return null;
     }
 
     @Override
     public void onTerminate() {
+        aapsLogger.debug(LTag.CORE, "onTerminate");
+        unregisterActivityLifecycleCallbacks(activityMonitor);
+        keepAliveManager.cancelAlarm(this);
         super.onTerminate();
-        sDatabaseHelper.close();
     }
 }

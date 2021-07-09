@@ -5,13 +5,16 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 
-import info.nightscout.androidaps.BuildConfig;
+import java.util.Vector;
+
+import info.nightscout.androidaps.R;
 import info.nightscout.androidaps.data.ListenerService;
 import info.nightscout.androidaps.interaction.AAPSPreferences;
 import info.nightscout.androidaps.interaction.actions.BolusActivity;
+import info.nightscout.androidaps.interaction.actions.ECarbActivity;
 import info.nightscout.androidaps.interaction.actions.TempTargetActivity;
-import info.nightscout.androidaps.interaction.utils.MenuListActivity;
 import info.nightscout.androidaps.interaction.actions.WizardActivity;
+import info.nightscout.androidaps.interaction.utils.MenuListActivity;
 
 /**
  * Created by adrian on 09/02/17.
@@ -30,83 +33,65 @@ public class MainMenuActivity extends MenuListActivity {
 
     @Override
     protected String[] getElements() {
+        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
 
-        if(!BuildConfig.WEAR_CONTROL){
-            return new String[] {
-                    "Settings",
-                    "Re-Sync"};
+        if (!sharedPreferences.getBoolean("wearcontrol", false)) {
+            return new String[]{
+                    getString(R.string.menu_settings),
+                    getString(R.string.menu_resync)};
         }
 
 
-        boolean showPrimeFill  = sp.getBoolean("primefill", false);
-        return new String[] {
-                "TempT",
-                "Bolus",
-                "Wizard",
-                "Settings",
-                "Re-Sync",
-                "Status",
-                showPrimeFill?"Prime/Fill":""};
+        boolean showPrimeFill = sp.getBoolean("primefill", false);
+        boolean showWizard = sp.getBoolean("showWizard", true);
+
+        Vector<String> menuitems = new Vector<String>();
+        menuitems.add(getString(R.string.menu_tempt));
+        if (showWizard) menuitems.add(getString(R.string.menu_wizard));
+        menuitems.add(getString(R.string.menu_ecarb));
+        menuitems.add(getString(R.string.menu_bolus));
+        menuitems.add(getString(R.string.menu_settings));
+        menuitems.add(getString(R.string.menu_status));
+        if (showPrimeFill) menuitems.add(getString(R.string.menu_prime_fill));
+
+        return menuitems.toArray(new String[menuitems.size()]);
     }
 
     @Override
-    protected void doAction(int position) {
+    protected void doAction(String action) {
 
         Intent intent;
 
-        if(!BuildConfig.WEAR_CONTROL) {
-            switch (position) {
-                case 0:
-                    intent = new Intent(this, AAPSPreferences.class);
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    this.startActivity(intent);
-                    break;
-                case 1:
-                    ListenerService.requestData(this);
-                    break;
-            }
-            return;
+        if (getString(R.string.menu_settings).equals(action)) {
+            intent = new Intent(this, AAPSPreferences.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            this.startActivity(intent);
+        } else if (getString(R.string.menu_resync).equals(action)) {
+            ListenerService.requestData(this);
+        } else if (getString(R.string.menu_tempt).equals(action)) {
+            intent = new Intent(this, TempTargetActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            this.startActivity(intent);
+        } else if (getString(R.string.menu_bolus).equals(action)) {
+            intent = new Intent(this, BolusActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            this.startActivity(intent);
+        } else if (getString(R.string.menu_wizard).equals(action)) {
+            intent = new Intent(this, WizardActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            this.startActivity(intent);
+        } else if (getString(R.string.menu_status).equals(action)) {
+            intent = new Intent(this, StatusMenuActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            this.startActivity(intent);
+        } else if (getString(R.string.menu_prime_fill).equals(action)) {
+            intent = new Intent(this, FillMenuActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            this.startActivity(intent);
+        } else if (getString(R.string.menu_ecarb).equals(action)) {
+            intent = new Intent(this, ECarbActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            this.startActivity(intent);
         }
-
-
-        switch (position) {
-            case 0:
-                intent = new Intent(this, TempTargetActivity.class);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                this.startActivity(intent);
-                break;
-            case 1:
-                intent = new Intent(this, BolusActivity.class);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                this.startActivity(intent);
-                break;
-            case 2:
-                intent = new Intent(this, WizardActivity.class);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                this.startActivity(intent);
-                break;
-            case 3:
-                intent = new Intent(this, AAPSPreferences.class);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                this.startActivity(intent);
-                break;
-            case 4:
-                ListenerService.requestData(this);
-                break;
-            case 5:
-                intent = new Intent(this, StatusMenuActivity.class);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                this.startActivity(intent);
-                break;
-            case 6:
-                boolean showPrimeFill  = sp.getBoolean("primefill", false);
-                if(showPrimeFill) {
-                    intent = new Intent(this, FillMenuActivity.class);
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    this.startActivity(intent);
-                }
-                break;
-        }
-
     }
 }
